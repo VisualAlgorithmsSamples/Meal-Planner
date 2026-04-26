@@ -1,5 +1,35 @@
 import { useState, useEffect } from "react";
 
+const SERVER = "";
+
+function useFileStorage(key, initial) {
+  const [value, setValue] = useState(() =>
+    typeof initial === "function" ? initial() : initial
+  );
+
+  // Load persisted value from server on mount
+  useEffect(() => {
+    fetch(`${SERVER}/data`)
+      .then(r => r.json())
+      .then(data => { if (key in data && data[key] !== null) setValue(data[key]); })
+      .catch(() => {});
+  }, []);
+
+  const set = (newValueOrFn) => {
+    setValue(prev => {
+      const next = typeof newValueOrFn === "function" ? newValueOrFn(prev) : newValueOrFn;
+      fetch(`${SERVER}/data/${key}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(next),
+      }).catch(() => {});
+      return next;
+    });
+  };
+
+  return [value, set];
+}
+
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const SHORT_DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
@@ -28,9 +58,11 @@ const initialPlan = () => {
 };
 
 export default function MealPlanner() {
-  const [plan, setPlan] = useState(initialPlan());
-  const [dishes, setDishes] = useState(SAMPLE_DISHES);
-  const [freezer, setFreezer] = useState(SAMPLE_FREEZER);
+  // Dynamic: resets/changes week to week
+  const [plan, setPlan] = useFileStorage("mp_plan", initialPlan);
+  const [freezer, setFreezer] = useFileStorage("mp_freezer", SAMPLE_FREEZER);
+  // Static: personal dish library, rarely changes
+  const [dishes, setDishes] = useFileStorage("mp_dishes", SAMPLE_DISHES);
   const [activeTab, setActiveTab] = useState("plan");
   const [activeDay, setActiveDay] = useState("Monday");
   const [showAddDish, setShowAddDish] = useState(false);
