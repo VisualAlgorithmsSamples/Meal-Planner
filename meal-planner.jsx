@@ -33,43 +33,37 @@ function useFileStorage(key, initial) {
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const SHORT_DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const TODAY = DAYS[(new Date().getDay() + 6) % 7];
+const MEAL_TYPES = ["breakfast", "lunch", "dinner", "snack"];
+const MEAL_ICONS = { breakfast: "🌅", lunch: "🌿", dinner: "🌙", snack: "🍎" };
 
-const SAMPLE_DISHES = [
-  { id: 1, name: "Pasta Bolognese", calories: 650, servings: 3, type: "dinner" },
-  { id: 2, name: "Chicken Stir Fry", calories: 520, servings: 2, type: "both" },
-  { id: 3, name: "Lentil Soup", calories: 380, servings: 4, type: "lunch" },
-  { id: 4, name: "Salmon & Veggies", calories: 480, servings: 2, type: "dinner" },
-  { id: 5, name: "Greek Salad + Wrap", calories: 420, servings: 1, type: "lunch" },
-  { id: 6, name: "Beef Stew", calories: 590, servings: 4, type: "dinner" },
-  { id: 7, name: "Veggie Curry", calories: 440, servings: 3, type: "both" },
-];
+// Normalize legacy string type to array
+const normType = (type) => Array.isArray(type) ? type : type === "both" ? ["lunch", "dinner"] : type ? [type] : [];
 
-const SAMPLE_FREEZER = [
-  { id: 1, name: "Frozen Lasagna", calories: 580, portions: 2 },
-  { id: 2, name: "Soup Portions", calories: 320, portions: 3 },
-  { id: 3, name: "Chili", calories: 490, portions: 2 },
-];
 
 const initialPlan = () => {
   const plan = {};
   DAYS.forEach(day => {
-    plan[day] = { lunch: null, dinner: null, backupLunch: null, backupDinner: null };
+    plan[day] = { breakfast: [], lunch: [], dinner: [], snack: [] };
   });
   return plan;
 };
 
+// Normalizes a stored slot to always be an array (handles old null/object format)
+const toArr = (val) => Array.isArray(val) ? val : val ? [val] : [];
+
 export default function MealPlanner() {
   // Dynamic: resets/changes week to week
   const [plan, setPlan] = useFileStorage("mp_plan", initialPlan);
-  const [freezer, setFreezer] = useFileStorage("mp_freezer", SAMPLE_FREEZER);
+  const [freezer, setFreezer] = useFileStorage("mp_freezer", []);
   const [fridge, setFridge] = useFileStorage("mp_fridge", []);
   // Static: personal dish library, rarely changes
-  const [dishes, setDishes] = useFileStorage("mp_dishes", SAMPLE_DISHES);
+  const [dishes, setDishes] = useFileStorage("mp_dishes", []);
+  const [settings, setSettings] = useFileStorage("mp_settings", { dailyCalories: 2200 });
   const [activeTab, setActiveTab] = useState("plan");
   const [activeDay, setActiveDay] = useState(TODAY);
   const [showAddDish, setShowAddDish] = useState(false);
   const [selectingFor, setSelectingFor] = useState(null); // { day, meal, isBackup }
-  const [newDish, setNewDish] = useState({ name: "", calories: "", servings: 1, type: "both", alwaysAvailable: false });
+  const [newDish, setNewDish] = useState({ name: "", calories: "", servings: 1, type: [], alwaysAvailable: false });
   const [cookInputs, setCookInputs] = useState({});
   const [cookedFeedback, setCookedFeedback] = useState({});
   const [editingDish, setEditingDish] = useState(null);
@@ -80,7 +74,17 @@ export default function MealPlanner() {
     ...freezer.map(f => ({ ...f, source: "freezer", type: "both" })),
   ];
 
-  const assignMeal = (day, meal, isBackup, item) => {
+  const returnFridgePortion = (item, count = 1) => {
+    setFridge(prev => {
+      const existing = prev.find(f => f.id === item.id);
+      if (existing) {
+        return prev.map(f => f.id === item.id ? { ...f, portions: f.portions + count } : f);
+      }
+      return [...prev, { id: item.id, dishId: item.dishId ?? null, name: item.name, calories: item.calories, portions: count }];
+    });
+  };
+
+  const assignMeal = (day, meal, item) => {
     if (item.source === "fridge") {
       setFridge(prev => prev
         .map(f => f.id === item.id ? { ...f, portions: f.portions - 1 } : f)
@@ -89,46 +93,58 @@ export default function MealPlanner() {
     }
     setPlan(prev => ({
       ...prev,
-      [day]: {
-        ...prev[day],
-        [isBackup ? `backup${meal.charAt(0).toUpperCase() + meal.slice(1)}` : meal]: item
-      }
+      [day]: { ...prev[day], [meal]: [...toArr(prev[day][meal]), { ...item, qty: 1 }] }
     }));
     setSelectingFor(null);
   };
 
-  const clearMeal = (day, meal, isBackup) => {
-    const key = isBackup ? `backup${meal.charAt(0).toUpperCase() + meal.slice(1)}` : meal;
-    const current = plan[day][key];
-    if (current?.source === "fridge") {
-      setFridge(prev => {
-        const existing = prev.find(f => f.id === current.id);
-        if (existing) {
-          return prev.map(f => f.id === current.id ? { ...f, portions: f.portions + 1 } : f);
-        }
-        return [...prev, { id: current.id, dishId: current.dishId ?? null, name: current.name, calories: current.calories, portions: 1 }];
-      });
+  const clearMeal = (day, meal, index) => {
+    const items = toArr(plan[day][meal]);
+    const removed = items[index];
+    if (removed?.source === "fridge") returnFridgePortion(removed, removed.qty ?? 1);
+    setPlan(prev => ({
+      ...prev,
+      [day]: { ...prev[day], [meal]: items.filter((_, i) => i !== index) }
+    }));
+  };
+
+  const changeMealQty = (day, meal, index, delta) => {
+    const items = toArr(plan[day][meal]);
+    const item = items[index];
+    const newQty = (item.qty ?? 1) + delta;
+    if (newQty < 1) { clearMeal(day, meal, index); return; }
+    if (item.source === "fridge") {
+      if (delta > 0) {
+        const available = fridge.find(f => f.id === item.id)?.portions ?? 0;
+        if (available < 1) return;
+        setFridge(prev => prev
+          .map(f => f.id === item.id ? { ...f, portions: f.portions - 1 } : f)
+          .filter(f => f.portions > 0)
+        );
+      } else {
+        returnFridgePortion(item);
+      }
     }
-    setPlan(prev => ({ ...prev, [day]: { ...prev[day], [key]: null } }));
+    setPlan(prev => ({
+      ...prev,
+      [day]: { ...prev[day], [meal]: items.map((it, i) => i === index ? { ...it, qty: newQty } : it) }
+    }));
   };
 
   const completeDayMeals = (day) => {
-    setPlan(prev => ({
-      ...prev,
-      [day]: { ...prev[day], lunch: null, dinner: null }
-    }));
+    setPlan(prev => ({ ...prev, [day]: { ...prev[day], breakfast: [], lunch: [], dinner: [], snack: [] } }));
   };
 
   const getDayCalories = (day) => {
     const d = plan[day];
-    const sum = (item) => item ? item.calories : 0;
-    return sum(d.lunch) + sum(d.dinner);
+    const sumArr = (arr) => toArr(arr).reduce((acc, item) => acc + (item?.calories ?? 0) * (item?.qty ?? 1), 0);
+    return MEAL_TYPES.reduce((acc, meal) => acc + sumArr(d[meal]), 0);
   };
 
   const addDish = () => {
-    if (!newDish.name || !newDish.calories) return;
+    if (!newDish.name || !newDish.calories || !newDish.type.length) return;
     setDishes(prev => [...prev, { ...newDish, id: Date.now(), calories: parseInt(newDish.calories), servings: parseInt(newDish.servings) }]);
-    setNewDish({ name: "", calories: "", servings: 1, type: "both" });
+    setNewDish({ name: "", calories: "", servings: 1, type: [], alwaysAvailable: false });
     setShowAddDish(false);
   };
 
@@ -199,8 +215,10 @@ export default function MealPlanner() {
       DAYS.forEach(day => {
         const d = prev[day];
         const patch = {};
-        ["lunch", "dinner", "backupLunch", "backupDinner"].forEach(key => {
-          if (d[key]?.dishId === id) patch[key] = { ...d[key], calories, servings, type };
+        MEAL_TYPES.forEach(key => {
+          const arr = toArr(d[key]);
+          const next = arr.map(item => item?.id === id ? { ...item, calories, servings, type } : item);
+          if (next.some((item, i) => item !== arr[i])) patch[key] = next;
         });
         if (Object.keys(patch).length) updated[day] = { ...d, ...patch };
       });
@@ -209,15 +227,21 @@ export default function MealPlanner() {
     setEditingDish(null);
   };
 
-  const filteredOptions = (meal) => allOptions.filter(o =>
-    (o.type === "both" || o.type === meal) &&
-    (o.source === "fridge" || (o.source === "dish" && o.alwaysAvailable))
-  );
+  const filteredOptions = (meal) => allOptions.filter(o => {
+    if (o.source === "fridge") {
+      if (!o.dishId) return true; // legacy item with no dish link
+      const dish = dishes.find(d => d.id === o.dishId);
+      return !dish || normType(dish.type).includes(meal);
+    }
+    if (o.source === "dish" && o.alwaysAvailable) return normType(o.type).includes(meal);
+    return false;
+  });
 
   const calorieColor = (cal) => {
     if (cal === 0) return "#666";
-    if (cal < 800) return "#4ade80";
-    if (cal < 1200) return "#facc15";
+    const goal = settings.dailyCalories;
+    if (cal < goal) return "#4ade80";
+    if (cal < goal + 200) return "#facc15";
     return "#f87171";
   };
 
@@ -247,7 +271,7 @@ export default function MealPlanner() {
             Plan ahead · Eat well · Stay flexible
           </p>
           <div style={{ display: "flex", gap: 0, borderBottom: "none" }}>
-            {["plan", "dishes", "fridge", "freezer"].map(tab => (
+            {["plan", "dishes", "fridge", "freezer", "settings"].map(tab => (
               <button key={tab} onClick={() => setActiveTab(tab)} style={{
                 background: activeTab === tab ? "#c8b97a" : "transparent",
                 color: activeTab === tab ? "#0f0f13" : "#888",
@@ -261,7 +285,7 @@ export default function MealPlanner() {
                 textTransform: "uppercase",
                 fontWeight: activeTab === tab ? "bold" : "normal",
               }}>
-                {tab === "plan" ? "📅 Week" : tab === "dishes" ? "🍽 Dishes" : tab === "fridge" ? "🧊 Fridge" : "❄️ Freezer"}
+                {tab === "plan" ? "📅 Week" : tab === "dishes" ? "🍽 Dishes" : tab === "fridge" ? "🧊 Fridge" : tab === "freezer" ? "❄️ Freezer" : "⚙ Settings"}
               </button>
             ))}
           </div>
@@ -277,7 +301,7 @@ export default function MealPlanner() {
             <div style={{ display: "flex", gap: 6, marginBottom: 20, flexWrap: "wrap" }}>
               {DAYS.map((day, i) => {
                 const cal = getDayCalories(day);
-                const hasData = plan[day].lunch || plan[day].dinner;
+                const hasData = MEAL_TYPES.some(m => toArr(plan[day][m]).length > 0);
                 return (
                   <button key={day} onClick={() => setActiveDay(day)} style={{
                     background: activeDay === day ? "#c8b97a" : hasData ? "#1e1e2e" : "#161620",
@@ -299,9 +323,9 @@ export default function MealPlanner() {
             </div>
 
             {/* Day detail */}
-            {["lunch", "dinner"].map(meal => {
-              const item = plan[activeDay][meal];
-              const backup = plan[activeDay][`backup${meal.charAt(0).toUpperCase() + meal.slice(1)}`];
+            {MEAL_TYPES.map(meal => {
+              const items = toArr(plan[activeDay][meal]);
+              const mealTotal = items.reduce((acc, i) => acc + (i?.calories ?? 0) * (i?.qty ?? 1), 0);
               return (
                 <div key={meal} style={{
                   background: "#161620",
@@ -312,40 +336,55 @@ export default function MealPlanner() {
                 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                     <span style={{ fontSize: 11, fontFamily: "monospace", color: "#c8b97a", textTransform: "uppercase", letterSpacing: "0.1em" }}>
-                      {meal === "lunch" ? "🌿 Lunch" : "🌙 Dinner"}
+                      {MEAL_ICONS[meal]} {meal}
                     </span>
-                    {item && <span style={{ fontSize: 12, color: calorieColor(item.calories), fontFamily: "monospace" }}>{item.calories} kcal</span>}
+                    {items.length > 0 && <span style={{ fontSize: 12, color: calorieColor(mealTotal), fontFamily: "monospace" }}>{mealTotal} kcal</span>}
                   </div>
 
-                  {/* Main meal */}
-                  {item ? (
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "#1e1e2e", borderRadius: 8, padding: "10px 14px" }}>
-                      <div>
-                        <div style={{ fontSize: 15 }}>{item.name}</div>
-                        <div style={{ fontSize: 11, color: "#888", fontFamily: "monospace", marginTop: 2 }}>
-                          {item.source === "dish" ? "✓ always available" : "🧊 fridge"}
+                  {items.map((item, i) => {
+                    const qty = item.qty ?? 1;
+                    const itemCal = item.calories * qty;
+                    const canIncrease = item.source === "dish" || (fridge.find(f => f.id === item.id)?.portions ?? 0) > 0;
+                    return (
+                      <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "#1e1e2e", borderRadius: 8, padding: "10px 14px", marginBottom: 6 }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 15 }}>{item.name}</div>
+                          <div style={{ fontSize: 11, color: "#888", fontFamily: "monospace", marginTop: 2 }}>
+                            {item.source === "dish" ? "✓ always available" : "🧊 fridge"} · {itemCal} kcal
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6, background: "#161620", borderRadius: 6, padding: "4px 8px" }}>
+                            <button onClick={() => changeMealQty(activeDay, meal, i, -1)} style={{
+                              background: "none", border: "none", color: "#f87171", cursor: "pointer", fontSize: 16, lineHeight: 1, padding: 0, width: 18, textAlign: "center",
+                            }}>−</button>
+                            <span style={{ fontFamily: "monospace", fontSize: 14, fontWeight: "bold", color: "#e8e4dc", minWidth: 16, textAlign: "center" }}>{qty}</span>
+                            <button onClick={() => changeMealQty(activeDay, meal, i, 1)} style={{
+                              background: "none", border: "none", color: canIncrease ? "#4ade80" : "#333", cursor: canIncrease ? "pointer" : "default", fontSize: 16, lineHeight: 1, padding: 0, width: 18, textAlign: "center",
+                            }}>+</button>
+                          </div>
+                          <button onClick={() => clearMeal(activeDay, meal, i)} style={{ background: "none", border: "none", color: "#444", cursor: "pointer", fontSize: 18 }}>×</button>
                         </div>
                       </div>
-                      <button onClick={() => clearMeal(activeDay, meal, false)} style={{ background: "none", border: "none", color: "#f87171", cursor: "pointer", fontSize: 18 }}>×</button>
-                    </div>
-                  ) : (
-                    <button onClick={() => setSelectingFor({ day: activeDay, meal, isBackup: false })} style={{
-                      width: "100%", background: "#1a1a24", border: "1px dashed #3a3a4a", borderRadius: 8,
-                      padding: "12px", color: "#666", cursor: "pointer", fontSize: 13,
-                    }}>+ Add {meal}</button>
-                  )}
+                    );
+                  })}
+
+                  <button onClick={() => setSelectingFor({ day: activeDay, meal })} style={{
+                    width: "100%", background: "#1a1a24", border: "1px dashed #3a3a4a", borderRadius: 8,
+                    padding: "10px", color: "#666", cursor: "pointer", fontSize: 13, marginTop: items.length > 0 ? 4 : 0,
+                  }}>+ Add {meal}</button>
                 </div>
               );
             })}
 
             {/* Day total + complete */}
-            {(plan[activeDay].lunch || plan[activeDay].dinner) && (
+            {MEAL_TYPES.some(m => toArr(plan[activeDay][m]).length > 0) && (
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <div style={{ flex: 1, textAlign: "center", padding: "10px", background: "#161620", border: "1px solid #2a2a3a", borderRadius: 8 }}>
-                  <span style={{ fontFamily: "monospace", fontSize: 13, color: "#888" }}>Day total: </span>
                   <span style={{ fontFamily: "monospace", fontSize: 16, color: calorieColor(getDayCalories(activeDay)), fontWeight: "bold" }}>
-                    {getDayCalories(activeDay)} kcal
+                    {getDayCalories(activeDay)}
                   </span>
+                  <span style={{ fontFamily: "monospace", fontSize: 13, color: "#555" }}> / {settings.dailyCalories} kcal</span>
                 </div>
                 <button onClick={() => completeDayMeals(activeDay)} style={{
                   background: "#1e1e2e", border: "1px solid #3a3a4a", borderRadius: 8,
@@ -368,7 +407,8 @@ export default function MealPlanner() {
               }}>+ New Dish</button>
             </div>
 
-            {dishes.map(dish => (
+            {/* Cookable dishes */}
+            {dishes.filter(d => !d.alwaysAvailable).map(dish => (
               <div key={dish.id} style={{
                 background: "#161620", border: "1px solid #2a2a3a", borderRadius: 10,
                 padding: "14px 16px", marginBottom: 10, display: "flex", justifyContent: "space-between", alignItems: "center",
@@ -382,7 +422,7 @@ export default function MealPlanner() {
                   <div>
                     <div style={{ fontSize: 15, marginBottom: 4 }}>{dish.name}</div>
                     <div style={{ fontFamily: "monospace", fontSize: 11, color: "#666" }}>
-                      {dish.calories} kcal · {dish.servings} serving{dish.servings > 1 ? "s" : ""} · {dish.type === "both" ? "lunch & dinner" : dish.type}
+                      {dish.calories} kcal · {dish.servings} serving{dish.servings > 1 ? "s" : ""} · {normType(dish.type).join(", ") || "—"}
                     </div>
                   </div>
                 </div>
@@ -413,6 +453,34 @@ export default function MealPlanner() {
               </div>
             ))}
 
+            {/* Always available dishes */}
+            {dishes.some(d => d.alwaysAvailable) && (
+              <div style={{ marginTop: 8, marginBottom: 10 }}>
+                <div style={{ fontFamily: "monospace", fontSize: 10, color: "#555", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 10 }}>Always available</div>
+                {dishes.filter(d => d.alwaysAvailable).map(dish => (
+                  <div key={dish.id} style={{
+                    background: "#161620", border: "1px solid #2a2a3a", borderRadius: 10,
+                    padding: "14px 16px", marginBottom: 10, display: "flex", justifyContent: "space-between", alignItems: "center",
+                  }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                      <button onClick={() => setEditingDish({ ...dish })} style={{
+                        background: "none", border: "none", padding: 0,
+                        color: "#555", cursor: "pointer", fontFamily: "monospace", fontSize: 11,
+                        textDecoration: "underline", textUnderlineOffset: 3, flexShrink: 0,
+                      }}>edit</button>
+                      <div>
+                        <div style={{ fontSize: 15, marginBottom: 4 }}>{dish.name}</div>
+                        <div style={{ fontFamily: "monospace", fontSize: 11, color: "#666" }}>
+                          {dish.calories} kcal · {normType(dish.type).join(", ") || "—"}
+                        </div>
+                      </div>
+                    </div>
+                    <button onClick={() => removeDish(dish.id)} style={{ background: "none", border: "none", color: "#444", cursor: "pointer", fontSize: 18 }}>×</button>
+                  </div>
+                ))}
+              </div>
+            )}
+
             {showAddDish && (
               <div style={{
                 position: "fixed", inset: 0, background: "rgba(0,0,0,0.8)", display: "flex",
@@ -424,23 +492,32 @@ export default function MealPlanner() {
                     { label: "Dish name", key: "name", type: "text" },
                     { label: "Calories per serving", key: "calories", type: "number" },
                     { label: "Servings per batch", key: "servings", type: "number" },
-                  ].map(f => (
-                    <div key={f.key} style={{ marginBottom: 14 }}>
-                      <label style={{ display: "block", fontSize: 11, fontFamily: "monospace", color: "#888", marginBottom: 6, textTransform: "uppercase" }}>{f.label}</label>
-                      <input type={f.type} value={newDish[f.key]} onChange={e => setNewDish(p => ({ ...p, [f.key]: e.target.value }))}
-                        style={{ width: "100%", background: "#0f0f13", border: "1px solid #3a3a4a", borderRadius: 8, padding: "10px 12px", color: "#e8e4dc", fontSize: 14, boxSizing: "border-box" }} />
-                    </div>
-                  ))}
-                  <div style={{ marginBottom: 20 }}>
-                    <label style={{ display: "block", fontSize: 11, fontFamily: "monospace", color: "#888", marginBottom: 6, textTransform: "uppercase" }}>Suitable for</label>
-                    <div style={{ display: "flex", gap: 8 }}>
-                      {["lunch", "dinner", "both"].map(t => (
-                        <button key={t} onClick={() => setNewDish(p => ({ ...p, type: t }))} style={{
-                          flex: 1, background: newDish.type === t ? "#c8b97a" : "#0f0f13",
-                          color: newDish.type === t ? "#0f0f13" : "#888",
-                          border: "1px solid #3a3a4a", borderRadius: 8, padding: "8px", cursor: "pointer", fontSize: 12,
-                        }}>{t}</button>
-                      ))}
+                  ].map(f => {
+                    const disabled = f.key === "servings" && newDish.alwaysAvailable;
+                    return (
+                      <div key={f.key} style={{ marginBottom: 14, opacity: disabled ? 0.35 : 1 }}>
+                        <label style={{ display: "block", fontSize: 11, fontFamily: "monospace", color: "#888", marginBottom: 6, textTransform: "uppercase" }}>{f.label}</label>
+                        <input type={f.type} value={newDish[f.key]} onChange={e => setNewDish(p => ({ ...p, [f.key]: e.target.value }))}
+                          disabled={disabled}
+                          style={{ width: "100%", background: "#0f0f13", border: "1px solid #3a3a4a", borderRadius: 8, padding: "10px 12px", color: "#e8e4dc", fontSize: 14, boxSizing: "border-box" }} />
+                      </div>
+                    );
+                  })}
+                  <div style={{ marginBottom: 16 }}>
+                    <label style={{ display: "block", fontSize: 11, fontFamily: "monospace", color: "#888", marginBottom: 8, textTransform: "uppercase" }}>Suitable for</label>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      {MEAL_TYPES.map(t => {
+                        const selected = normType(newDish.type).includes(t);
+                        return (
+                          <button key={t} onClick={() => {
+                            const cur = normType(newDish.type);
+                            setNewDish(p => ({ ...p, type: selected ? cur.filter(x => x !== t) : [...cur, t] }));
+                          }} style={{
+                            background: selected ? "#c8b97a" : "#0f0f13", color: selected ? "#0f0f13" : "#888",
+                            border: "1px solid #3a3a4a", borderRadius: 8, padding: "8px 14px", cursor: "pointer", fontSize: 12,
+                          }}>{MEAL_ICONS[t]} {t}</button>
+                        );
+                      })}
                     </div>
                   </div>
                   <label style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20, cursor: "pointer" }}>
@@ -468,23 +545,32 @@ export default function MealPlanner() {
                   {[
                     { label: "Calories per serving", key: "calories", type: "number" },
                     { label: "Servings per batch", key: "servings", type: "number" },
-                  ].map(f => (
-                    <div key={f.key} style={{ marginBottom: 14 }}>
-                      <label style={{ display: "block", fontSize: 11, fontFamily: "monospace", color: "#888", marginBottom: 6, textTransform: "uppercase" }}>{f.label}</label>
-                      <input type={f.type} value={editingDish[f.key]} onChange={e => setEditingDish(p => ({ ...p, [f.key]: e.target.value }))}
-                        style={{ width: "100%", background: "#0f0f13", border: "1px solid #3a3a4a", borderRadius: 8, padding: "10px 12px", color: "#e8e4dc", fontSize: 14, boxSizing: "border-box" }} />
-                    </div>
-                  ))}
-                  <div style={{ marginBottom: 20 }}>
-                    <label style={{ display: "block", fontSize: 11, fontFamily: "monospace", color: "#888", marginBottom: 6, textTransform: "uppercase" }}>Suitable for</label>
-                    <div style={{ display: "flex", gap: 8 }}>
-                      {["lunch", "dinner", "both"].map(t => (
-                        <button key={t} onClick={() => setEditingDish(p => ({ ...p, type: t }))} style={{
-                          flex: 1, background: editingDish.type === t ? "#c8b97a" : "#0f0f13",
-                          color: editingDish.type === t ? "#0f0f13" : "#888",
-                          border: "1px solid #3a3a4a", borderRadius: 8, padding: "8px", cursor: "pointer", fontSize: 12,
-                        }}>{t}</button>
-                      ))}
+                  ].map(f => {
+                    const disabled = f.key === "servings" && editingDish.alwaysAvailable;
+                    return (
+                      <div key={f.key} style={{ marginBottom: 14, opacity: disabled ? 0.35 : 1 }}>
+                        <label style={{ display: "block", fontSize: 11, fontFamily: "monospace", color: "#888", marginBottom: 6, textTransform: "uppercase" }}>{f.label}</label>
+                        <input type={f.type} value={editingDish[f.key]} onChange={e => setEditingDish(p => ({ ...p, [f.key]: e.target.value }))}
+                          disabled={disabled}
+                          style={{ width: "100%", background: "#0f0f13", border: "1px solid #3a3a4a", borderRadius: 8, padding: "10px 12px", color: "#e8e4dc", fontSize: 14, boxSizing: "border-box" }} />
+                      </div>
+                    );
+                  })}
+                  <div style={{ marginBottom: 16 }}>
+                    <label style={{ display: "block", fontSize: 11, fontFamily: "monospace", color: "#888", marginBottom: 8, textTransform: "uppercase" }}>Suitable for</label>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      {MEAL_TYPES.map(t => {
+                        const selected = normType(editingDish.type).includes(t);
+                        return (
+                          <button key={t} onClick={() => {
+                            const cur = normType(editingDish.type);
+                            setEditingDish(p => ({ ...p, type: selected ? cur.filter(x => x !== t) : [...cur, t] }));
+                          }} style={{
+                            background: selected ? "#c8b97a" : "#0f0f13", color: selected ? "#0f0f13" : "#888",
+                            border: "1px solid #3a3a4a", borderRadius: 8, padding: "8px 14px", cursor: "pointer", fontSize: 12,
+                          }}>{MEAL_ICONS[t]} {t}</button>
+                        );
+                      })}
                     </div>
                   </div>
                   <label style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20, cursor: "pointer" }}>
@@ -592,6 +678,33 @@ export default function MealPlanner() {
 
           </div>
         )}
+
+        {/* SETTINGS TAB */}
+        {activeTab === "settings" && (
+          <div>
+            <div style={{ marginBottom: 24 }}>
+              <div style={{ fontFamily: "monospace", fontSize: 10, color: "#555", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 16 }}>Nutrition</div>
+              <div style={{ background: "#161620", border: "1px solid #2a2a3a", borderRadius: 10, padding: "20px 20px" }}>
+                <label style={{ display: "block", fontSize: 11, fontFamily: "monospace", color: "#888", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                  Daily calorie goal
+                </label>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <input
+                    type="number" min={500} max={9999}
+                    value={settings.dailyCalories}
+                    onChange={e => setSettings(p => ({ ...p, dailyCalories: parseInt(e.target.value) || p.dailyCalories }))}
+                    style={{
+                      width: 100, background: "#0f0f13", border: "1px solid #3a3a4a", borderRadius: 8,
+                      padding: "10px 12px", color: "#c8b97a", fontSize: 18, fontFamily: "monospace",
+                      fontWeight: "bold", textAlign: "center", outline: "none", boxSizing: "border-box",
+                    }}
+                  />
+                  <span style={{ fontFamily: "monospace", fontSize: 13, color: "#666" }}>kcal / day</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Meal selector modal */}
@@ -606,12 +719,12 @@ export default function MealPlanner() {
           }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
               <h3 style={{ margin: 0, fontWeight: "normal", color: "#c8b97a", fontSize: 15 }}>
-                {selectingFor.isBackup ? "Choose backup" : "Choose"} {selectingFor.meal} for {selectingFor.day}
+                Choose {selectingFor.meal} for {selectingFor.day}
               </h3>
               <button onClick={() => setSelectingFor(null)} style={{ background: "none", border: "none", color: "#888", cursor: "pointer", fontSize: 22 }}>×</button>
             </div>
             {filteredOptions(selectingFor.meal).map(item => (
-              <button key={`${item.source}-${item.id}`} onClick={() => assignMeal(selectingFor.day, selectingFor.meal, selectingFor.isBackup, item)}
+              <button key={`${item.source}-${item.id}`} onClick={() => assignMeal(selectingFor.day, selectingFor.meal, item)}
                 style={{
                   display: "flex", justifyContent: "space-between", alignItems: "center",
                   width: "100%", background: "#161620", border: "1px solid #2a2a3a", borderRadius: 10,
