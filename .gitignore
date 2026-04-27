@@ -1,3 +1,6 @@
+# claude code internals
+.claude/
+
 # dependencies
 node_modules/
 package.json
