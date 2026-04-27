@@ -59,6 +59,7 @@ export default function MealPlanner() {
   // Static: personal dish library, rarely changes
   const [dishes, setDishes] = useFileStorage("mp_dishes", []);
   const [settings, setSettings] = useFileStorage("mp_settings", { dailyCalories: 2200 });
+  const [history, setHistory] = useFileStorage("mp_history", []);
   const [activeTab, setActiveTab] = useState("plan");
   const [activeDay, setActiveDay] = useState(TODAY);
   const [showAddDish, setShowAddDish] = useState(false);
@@ -73,6 +74,51 @@ export default function MealPlanner() {
     ...dishes.map(d => ({ ...d, source: "dish" })),
     ...freezer.map(f => ({ ...f, source: "freezer", type: "both" })),
   ];
+
+  const getLastOccurrenceDate = (dayName) => {
+    const todayStr = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Europe/Amsterdam", year: "numeric", month: "2-digit", day: "2-digit",
+    }).format(new Date());
+    // Parse as noon UTC to avoid DST edge cases on date-only strings
+    const todayDate = new Date(todayStr + "T12:00:00Z");
+    const todayDow = (todayDate.getUTCDay() + 6) % 7; // 0=Mon … 6=Sun
+    const targetDow = DAYS.indexOf(dayName);
+    let daysAgo = (todayDow - targetDow + 7) % 7;
+    if (daysAgo === 0) daysAgo = 7;
+    const result = new Date(todayStr + "T12:00:00Z");
+    result.setUTCDate(result.getUTCDate() - daysAgo);
+    return result.toISOString().slice(0, 10);
+  };
+
+  const handleExport = () => {
+    const data = { dishes, fridge, freezer, settings, plan, history };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `meal-planner-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImport = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data = JSON.parse(ev.target.result);
+        if (data.dishes) setDishes(data.dishes);
+        if (data.fridge) setFridge(data.fridge);
+        if (data.freezer) setFreezer(data.freezer);
+        if (data.settings) setSettings(data.settings);
+        if (data.plan) setPlan(data.plan);
+        if (data.history) setHistory(data.history);
+      } catch { /* invalid file, ignore */ }
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  };
 
   const returnFridgePortion = (item, count = 1) => {
     setFridge(prev => {
@@ -131,14 +177,27 @@ export default function MealPlanner() {
     }));
   };
 
-  const completeDayMeals = (day) => {
-    setPlan(prev => ({ ...prev, [day]: { ...prev[day], breakfast: [], lunch: [], dinner: [], snack: [] } }));
-  };
-
   const getDayCalories = (day) => {
     const d = plan[day];
     const sumArr = (arr) => toArr(arr).reduce((acc, item) => acc + (item?.calories ?? 0) * (item?.qty ?? 1), 0);
     return MEAL_TYPES.reduce((acc, meal) => acc + sumArr(d[meal]), 0);
+  };
+
+  const completeDayMeals = (day) => {
+    const date = getLastOccurrenceDate(day);
+    const meals = {};
+    MEAL_TYPES.forEach(meal => {
+      const items = toArr(plan[day][meal]);
+      if (items.length > 0) meals[meal] = items.map(item => ({
+        name: item.name,
+        calories: item.calories,
+        qty: item.qty ?? 1,
+        totalKcal: item.calories * (item.qty ?? 1),
+      }));
+    });
+    const totalKcal = getDayCalories(day);
+    setHistory(prev => [...prev, { date, day, totalKcal, meals }]);
+    setPlan(prev => ({ ...prev, [day]: { ...prev[day], breakfast: [], lunch: [], dinner: [], snack: [] } }));
   };
 
   const addDish = () => {
@@ -700,6 +759,29 @@ export default function MealPlanner() {
                     }}
                   />
                   <span style={{ fontFamily: "monospace", fontSize: 13, color: "#666" }}>kcal / day</span>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <div style={{ fontFamily: "monospace", fontSize: 10, color: "#555", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 16 }}>Data</div>
+              <div style={{ background: "#161620", border: "1px solid #2a2a3a", borderRadius: 10, padding: "20px" }}>
+                <p style={{ margin: "0 0 16px", fontFamily: "monospace", fontSize: 12, color: "#666", lineHeight: 1.6 }}>
+                  Download a backup of your dishes, fridge, freezer, week plan and settings. Upload a previously saved backup to restore.
+                </p>
+                <div style={{ display: "flex", gap: 10 }}>
+                  <button onClick={handleExport} style={{
+                    flex: 1, background: "#1e1e2e", border: "1px solid #3a3a4a", borderRadius: 8,
+                    padding: "10px", color: "#c8b97a", cursor: "pointer", fontFamily: "monospace", fontSize: 12,
+                  }}>download backup</button>
+                  <label style={{
+                    flex: 1, background: "#1e1e2e", border: "1px solid #3a3a4a", borderRadius: 8,
+                    padding: "10px", color: "#888", cursor: "pointer", fontFamily: "monospace", fontSize: 12,
+                    textAlign: "center",
+                  }}>
+                    upload backup
+                    <input type="file" accept=".json" onChange={handleImport} style={{ display: "none" }} />
+                  </label>
                 </div>
               </div>
             </div>
