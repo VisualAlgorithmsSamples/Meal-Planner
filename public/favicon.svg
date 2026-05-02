@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <rect width="32" height="32" rx="6" fill="#1a1a24"/>
+  <!-- Fork tines -->
+  <line x1="9"  y1="7" x2="9"  y2="14" stroke="#c8b97a" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="11" y1="7" x2="11" y2="14" stroke="#c8b97a" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="13" y1="7" x2="13" y2="14" stroke="#c8b97a" stroke-width="1.5" stroke-linecap="round"/>
+  <!-- Fork neck -->
+  <path d="M9 14 Q11 17 13 14" fill="none" stroke="#c8b97a" stroke-width="1.5"/>
+  <!-- Fork stem -->
+  <line x1="11" y1="16" x2="11" y2="26" stroke="#c8b97a" stroke-width="2" stroke-linecap="round"/>
+  <!-- Knife blade -->
+  <path d="M21 7 C23 8 24 12 24 16 L21 16 Z" fill="#c8b97a"/>
+  <!-- Knife stem -->
+  <line x1="21" y1="7" x2="21" y2="26" stroke="#c8b97a" stroke-width="2" stroke-linecap="round"/>
+</svg>
