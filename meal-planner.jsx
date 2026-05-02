@@ -51,6 +51,21 @@ const initialPlan = () => {
 // Normalizes a stored slot to always be an array (handles old null/object format)
 const toArr = (val) => Array.isArray(val) ? val : val ? [val] : [];
 
+function reconcilePlanWithFridge(plan, fridge) {
+  const stock = new Map(fridge.map(f => [f.id, f.portions]));
+  const cleaned = {};
+  for (const day of DAYS) {
+    const dayPlan = plan[day] ?? {};
+    cleaned[day] = {};
+    for (const meal of MEAL_TYPES) {
+      cleaned[day][meal] = toArr(dayPlan[meal]).filter(
+        item => item.source !== "fridge" || (stock.get(item.id) ?? 0) > 0
+      );
+    }
+  }
+  return cleaned;
+}
+
 export default function MealPlanner() {
   // Dynamic: resets/changes week to week
   const [plan, setPlan] = useFileStorage("mp_plan", initialPlan);
@@ -112,7 +127,10 @@ export default function MealPlanner() {
         if (data.fridge) setFridge(data.fridge);
         if (data.freezer) setFreezer(data.freezer);
         if (data.settings) setSettings(data.settings);
-        if (data.plan) setPlan(data.plan);
+        if (data.plan) {
+          const restoredFridge = data.fridge ?? fridge;
+          setPlan(reconcilePlanWithFridge(data.plan, restoredFridge));
+        }
         if (data.history) setHistory(data.history);
       } catch { /* invalid file, ignore */ }
     };
