@@ -289,7 +289,29 @@ export default function MealPlanner() {
     const freezerCount = Math.min(parseInt(cookInputs[dish.id] ?? 0) || 0, dish.servings);
     const fridgeCount = dish.servings - freezerCount;
     upsertStorage(setFreezer, dish.id, dish.name, dish.calories, freezerCount);
-    upsertStorage(setFridge, dish.id, dish.name, dish.calories, fridgeCount);
+
+    // When there's no existing fridge item for this dish (new batch after old one was fully
+    // consumed), generate the ID up front so we can repoint any stale plan references.
+    const existingFridgeItem = fridge.find(f => f.dishId === dish.id);
+    if (existingFridgeItem || fridgeCount <= 0) {
+      upsertStorage(setFridge, dish.id, dish.name, dish.calories, fridgeCount);
+    } else {
+      const newId = Date.now();
+      setFridge(prev => [...prev, { id: newId, dishId: dish.id, name: dish.name, calories: dish.calories, portions: fridgeCount }]);
+      setPlan(prev => {
+        const updated = {};
+        for (const [day, slots] of Object.entries(prev)) {
+          updated[day] = {};
+          for (const [meal, items] of Object.entries(slots)) {
+            updated[day][meal] = items.map(item =>
+              item.source === "fridge" && item.dishId === dish.id ? { ...item, id: newId } : item
+            );
+          }
+        }
+        return updated;
+      });
+    }
+
     setCookInputs(prev => ({ ...prev, [dish.id]: 0 }));
     setCookedFeedback(prev => ({ ...prev, [dish.id]: true }));
     setTimeout(() => setCookedFeedback(prev => ({ ...prev, [dish.id]: false })), 1500);
