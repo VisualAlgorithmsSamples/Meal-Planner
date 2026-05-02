@@ -1,0 +1,38 @@
+{
+  "current": "v1",
+  "versions": {
+    "v1": {
+      "date": "2026-05-02",
+      "description": "Initial history structure. Each entry represents one logged day.",
+      "migration": null,
+      "entry": {
+        "date": "string (YYYY-MM-DD)",
+        "day": "string (Monday–Sunday)",
+        "totalKcal": "number",
+        "meals": {
+          "<meal_type (breakfast|lunch|dinner|snack)>": [
+            {
+              "name": "string",
+              "calories": "number (kcal per serving)",
+              "qty": "number (servings consumed)",
+              "totalKcal": "number (calories × qty)"
+            }
+          ]
+        }
+      },
+      "example": {
+        "date": "2026-04-20",
+        "day": "Monday",
+        "totalKcal": 381,
+        "meals": {
+          "breakfast": [
+            { "name": "Kwark", "calories": 127, "qty": 1, "totalKcal": 127 }
+          ],
+          "snack": [
+            { "name": "Kwark", "calories": 127, "qty": 2, "totalKcal": 254 }
+          ]
+        }
+      }
+    }
+  }
+}

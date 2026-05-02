@@ -48,6 +48,16 @@ Single-page meal planning app. React 18 + Vite frontend (`meal-planner.jsx`), pl
 - `main.jsx` is the React entry point only — no logic there
 - `server.js` handles data persistence only — no business logic
 
+## History schema versioning
+
+`docs/history-schema.json` tracks the shape of `mp_history` entries across versions.
+
+**Rules:**
+- Any change to the structure of a `mp_history` entry requires a schema update in the same commit.
+- Add a new version key (e.g. `"v2"`) with today's date, a description of what changed, and a `"migration"` field describing how to convert v(n-1) entries to the new shape.
+- Update `"current"` to point to the new version.
+- When asked to migrate existing history data to a new format, read `docs/history-schema.json` to find the old and new shapes, then transform each entry in `mp_history` accordingly.
+
 ## Response style
 
 - Be concise. Skip preamble; go straight to the change or answer.
