@@ -86,6 +86,7 @@ export default function MealPlanner() {
   const [dishSort, setDishSort] = useState("alpha");
   const [dishFilter, setDishFilter] = useState(null);
   const [directKcalInputs, setDirectKcalInputs] = useState({});
+  const [invalidKcalInputs, setInvalidKcalInputs] = useState({});
   const [hoveredBar, setHoveredBar] = useState(null);
   const [selectedBar, setSelectedBar] = useState(null);
   const [showTestConfirm, setShowTestConfirm] = useState(false);
@@ -180,7 +181,11 @@ export default function MealPlanner() {
 
   const addDirectKcal = (day, meal) => {
     const val = parseInt(directKcalInputs[meal]);
-    if (!val || val <= 0) return;
+    if (!val || val <= 0) {
+      setInvalidKcalInputs(prev => ({ ...prev, [meal]: true }));
+      setTimeout(() => setInvalidKcalInputs(prev => ({ ...prev, [meal]: false })), 600);
+      return;
+    }
     setPlan(prev => ({
       ...prev,
       [day]: { ...prev[day], [meal]: [...toArr(prev[day][meal]), { id: Date.now(), name: "direct kcal", calories: val, qty: 1, source: "direct" }] }
@@ -230,7 +235,7 @@ export default function MealPlanner() {
       }));
     });
     const totalKcal = getDayCalories(day);
-    setHistory(prev => [...prev, { date, day, totalKcal, meals }]);
+    setHistory(prev => [...prev.filter(e => e.date !== date), { date, day, totalKcal, meals }]);
     setPlan(prev => ({ ...prev, [day]: { ...prev[day], breakfast: [], lunch: [], dinner: [], snack: [] } }));
   };
 
@@ -326,7 +331,19 @@ export default function MealPlanner() {
     });
   };
 
-  const removeFridgeItem = (id) => setFridge(prev => prev.filter(f => f.id !== id));
+  const removeFridgeItem = (id) => {
+    setFridge(prev => prev.filter(f => f.id !== id));
+    setPlan(prev => {
+      const next = {};
+      for (const day of DAYS) {
+        next[day] = {};
+        for (const meal of MEAL_TYPES) {
+          next[day][meal] = toArr(prev[day]?.[meal]).filter(item => !(item.source === "fridge" && item.id === id));
+        }
+      }
+      return next;
+    });
+  };
   const changeFridgePortions = (id, delta) => {
     setFridge(prev => prev
       .map(f => f.id === id ? { ...f, portions: f.portions + delta } : f)
@@ -407,7 +424,7 @@ export default function MealPlanner() {
           </p>
           <div style={{ display: "flex", gap: 0, borderBottom: "none" }}>
             {["plan", "dishes", "fridge", "freezer", "history", "settings"].map(tab => (
-              <button key={tab} onClick={() => setActiveTab(tab)} style={{
+              <button key={tab} onClick={() => { setActiveTab(tab); setSelectedBar(null); setHoveredBar(null); }} style={{
                 flex: 1,
                 minWidth: 0,
                 background: activeTab === tab ? "#c8b97a" : "transparent",
@@ -532,7 +549,7 @@ export default function MealPlanner() {
                       onChange={e => setDirectKcalInputs(prev => ({ ...prev, [meal]: e.target.value }))}
                       onKeyDown={e => e.key === "Enter" && addDirectKcal(activeDay, meal)}
                       style={{
-                        flex: 1, background: "#1a1a24", border: "1px dashed #3a3a4a", borderRadius: 8,
+                        flex: 1, background: "#1a1a24", border: `1px dashed ${invalidKcalInputs[meal] ? "#f87171" : "#3a3a4a"}`, borderRadius: 8,
                         padding: "8px 12px", color: "#aaa", fontSize: 13, fontFamily: "monospace",
                         outline: "none", boxSizing: "border-box",
                       }}
@@ -682,14 +699,14 @@ export default function MealPlanner() {
                   <h3 style={{ margin: "0 0 20px", color: "#c8b97a", fontWeight: "normal" }}>Add New Dish</h3>
                   {[
                     { label: "Dish name", key: "name", type: "text" },
-                    { label: "Calories per serving", key: "calories", type: "number" },
-                    { label: "Servings per batch", key: "servings", type: "number" },
+                    { label: "Calories per serving", key: "calories", type: "number", min: 1 },
+                    { label: "Servings per batch", key: "servings", type: "number", min: 1 },
                   ].map(f => {
                     const disabled = f.key === "servings" && newDish.alwaysAvailable;
                     return (
                       <div key={f.key} style={{ marginBottom: 14, opacity: disabled ? 0.35 : 1 }}>
                         <label style={{ display: "block", fontSize: 11, fontFamily: "monospace", color: "#888", marginBottom: 6, textTransform: "uppercase" }}>{f.label}</label>
-                        <input type={f.type} value={newDish[f.key]} onChange={e => setNewDish(p => ({ ...p, [f.key]: e.target.value }))}
+                        <input type={f.type} min={f.min} value={newDish[f.key]} onChange={e => setNewDish(p => ({ ...p, [f.key]: e.target.value }))}
                           disabled={disabled}
                           style={{ width: "100%", background: "#0f0f13", border: "1px solid #3a3a4a", borderRadius: 8, padding: "10px 12px", color: "#e8e4dc", fontSize: 14, boxSizing: "border-box" }} />
                       </div>
@@ -735,14 +752,14 @@ export default function MealPlanner() {
                   <h3 style={{ margin: "0 0 4px", color: "#c8b97a", fontWeight: "normal" }}>Edit Dish</h3>
                   <p style={{ margin: "0 0 20px", fontFamily: "monospace", fontSize: 13, color: "#666" }}>{editingDish.name}</p>
                   {[
-                    { label: "Calories per serving", key: "calories", type: "number" },
-                    { label: "Servings per batch", key: "servings", type: "number" },
+                    { label: "Calories per serving", key: "calories", type: "number", min: 1 },
+                    { label: "Servings per batch", key: "servings", type: "number", min: 1 },
                   ].map(f => {
                     const disabled = f.key === "servings" && editingDish.alwaysAvailable;
                     return (
                       <div key={f.key} style={{ marginBottom: 14, opacity: disabled ? 0.35 : 1 }}>
                         <label style={{ display: "block", fontSize: 11, fontFamily: "monospace", color: "#888", marginBottom: 6, textTransform: "uppercase" }}>{f.label}</label>
-                        <input type={f.type} value={editingDish[f.key]} onChange={e => setEditingDish(p => ({ ...p, [f.key]: e.target.value }))}
+                        <input type={f.type} min={f.min} value={editingDish[f.key]} onChange={e => setEditingDish(p => ({ ...p, [f.key]: e.target.value }))}
                           disabled={disabled}
                           style={{ width: "100%", background: "#0f0f13", border: "1px solid #3a3a4a", borderRadius: 8, padding: "10px 12px", color: "#e8e4dc", fontSize: 14, boxSizing: "border-box" }} />
                       </div>

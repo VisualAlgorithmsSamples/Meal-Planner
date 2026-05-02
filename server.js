@@ -48,10 +48,19 @@ const server = http.createServer((req, res) => {
   if (req.method === "PATCH" && req.url.startsWith("/data/")) {
     const key = req.url.slice(6);
     let body = "";
-    req.on("data", chunk => body += chunk);
+    let size = 0;
+    const LIMIT = 5 * 1024 * 1024; // 5 MB
+    req.on("data", chunk => {
+      size += chunk.length;
+      if (size > LIMIT) { res.writeHead(413); res.end("Payload too large"); req.destroy(); return; }
+      body += chunk;
+    });
     req.on("end", () => {
+      let parsed;
+      try { parsed = JSON.parse(body); }
+      catch { res.writeHead(400); res.end("Invalid JSON"); return; }
       const db = read();
-      db[key] = JSON.parse(body);
+      db[key] = parsed;
       write(db);
       res.setHeader("Content-Type", "application/json");
       res.writeHead(200);
