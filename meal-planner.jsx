@@ -83,6 +83,9 @@ export default function MealPlanner() {
   const [cookInputs, setCookInputs] = useState({});
   const [cookedFeedback, setCookedFeedback] = useState({});
   const [editingDish, setEditingDish] = useState(null);
+  const [dishSort, setDishSort] = useState("alpha");
+  const [dishFilter, setDishFilter] = useState(null);
+  const [showTestConfirm, setShowTestConfirm] = useState(false);
 
   const allOptions = [
     ...fridge.map(f => ({ ...f, source: "fridge", type: "both" })),
@@ -216,6 +219,34 @@ export default function MealPlanner() {
     const totalKcal = getDayCalories(day);
     setHistory(prev => [...prev, { date, day, totalKcal, meals }]);
     setPlan(prev => ({ ...prev, [day]: { ...prev[day], breakfast: [], lunch: [], dinner: [], snack: [] } }));
+  };
+
+  const handleLoadTestData = async () => {
+    const { TEST_DATA } = await import('./testData.js');
+    setDishes(TEST_DATA.dishes);
+    setFridge(TEST_DATA.fridge);
+    setFreezer(TEST_DATA.freezer);
+    setSettings(TEST_DATA.settings);
+    setPlan(TEST_DATA.plan);
+    setHistory(TEST_DATA.history);
+    setShowTestConfirm(false);
+  };
+
+  const sortDishes = (list) => {
+    if (dishSort === "type") {
+      const typeRank = (d) => {
+        const idx = MEAL_TYPES.findIndex(t => normType(d.type).includes(t));
+        return idx === -1 ? MEAL_TYPES.length : idx;
+      };
+      return [...list].sort((a, b) => typeRank(a) - typeRank(b));
+    }
+    return [...list].sort((a, b) => a.name.localeCompare(b.name));
+  };
+
+  const filterDishes = (list) => {
+    if (!dishFilter) return list;
+    if (dishFilter === "always") return list.filter(d => d.alwaysAvailable);
+    return list.filter(d => normType(d.type).includes(dishFilter));
   };
 
   const addDish = () => {
@@ -476,7 +507,7 @@ export default function MealPlanner() {
         {/* DISHES TAB */}
         {activeTab === "dishes" && (
           <div>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
               <span style={{ fontFamily: "monospace", fontSize: 12, color: "#888" }}>{dishes.length} dishes saved</span>
               <button onClick={() => setShowAddDish(true)} style={{
                 background: "#c8b97a", color: "#0f0f13", border: "none", borderRadius: 8,
@@ -484,8 +515,31 @@ export default function MealPlanner() {
               }}>+ New Dish</button>
             </div>
 
+            <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+              {[["alpha", "A–Z"], ["type", "Type"]].map(([val, label]) => (
+                <button key={val} onClick={() => setDishSort(val)} style={{
+                  background: dishSort === val ? "#2a2a3a" : "none",
+                  border: `1px solid ${dishSort === val ? "#4a4a5a" : "#2a2a3a"}`,
+                  borderRadius: 6, padding: "4px 10px", cursor: "pointer",
+                  fontFamily: "monospace", fontSize: 11,
+                  color: dishSort === val ? "#c8b97a" : "#555",
+                }}>{label}</button>
+              ))}
+            </div>
+            <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
+              {[...MEAL_TYPES, "always"].map(f => (
+                <button key={f} onClick={() => setDishFilter(prev => prev === f ? null : f)} style={{
+                  background: dishFilter === f ? "#2a2a3a" : "none",
+                  border: `1px solid ${dishFilter === f ? "#4a4a5a" : "#2a2a3a"}`,
+                  borderRadius: 6, padding: "4px 10px", cursor: "pointer",
+                  fontFamily: "monospace", fontSize: 11,
+                  color: dishFilter === f ? "#c8b97a" : "#555",
+                }}>{f}</button>
+              ))}
+            </div>
+
             {/* Cookable dishes */}
-            {dishes.filter(d => !d.alwaysAvailable).map(dish => (
+            {filterDishes(sortDishes(dishes.filter(d => !d.alwaysAvailable))).map(dish => (
               <div key={dish.id} style={{
                 background: "#161620", border: "1px solid #2a2a3a", borderRadius: 10,
                 padding: "14px 16px", marginBottom: 10, display: "flex", justifyContent: "space-between", alignItems: "center",
@@ -531,10 +585,10 @@ export default function MealPlanner() {
             ))}
 
             {/* Always available dishes */}
-            {dishes.some(d => d.alwaysAvailable) && (
+            {filterDishes(sortDishes(dishes.filter(d => d.alwaysAvailable))).length > 0 && (
               <div style={{ marginTop: 8, marginBottom: 10 }}>
                 <div style={{ fontFamily: "monospace", fontSize: 10, color: "#555", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 10 }}>Always available</div>
-                {dishes.filter(d => d.alwaysAvailable).map(dish => (
+                {filterDishes(sortDishes(dishes.filter(d => d.alwaysAvailable))).map(dish => (
                   <div key={dish.id} style={{
                     background: "#161620", border: "1px solid #2a2a3a", borderRadius: 10,
                     padding: "14px 16px", marginBottom: 10, display: "flex", justifyContent: "space-between", alignItems: "center",
@@ -803,6 +857,36 @@ export default function MealPlanner() {
                 </div>
               </div>
             </div>
+
+            {import.meta.env.DEV && (
+              <div style={{ marginTop: 24 }}>
+                <div style={{ fontFamily: "monospace", fontSize: 10, color: "#3a3a4a", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 16 }}>Dev</div>
+                <div style={{ background: "#161620", border: "1px solid #2a2a3a", borderRadius: 10, padding: "20px" }}>
+                  {showTestConfirm ? (
+                    <div>
+                      <p style={{ margin: "0 0 16px", fontFamily: "monospace", fontSize: 12, color: "#c87a7a", lineHeight: 1.6 }}>
+                        This replaces all current dishes, fridge, freezer, plan and history with test data. Continue?
+                      </p>
+                      <div style={{ display: "flex", gap: 10 }}>
+                        <button onClick={handleLoadTestData} style={{
+                          flex: 1, background: "#1e1e2e", border: "1px solid #c87a7a", borderRadius: 8,
+                          padding: "10px", color: "#c87a7a", cursor: "pointer", fontFamily: "monospace", fontSize: 12,
+                        }}>yes, load test data</button>
+                        <button onClick={() => setShowTestConfirm(false)} style={{
+                          flex: 1, background: "#1e1e2e", border: "1px solid #3a3a4a", borderRadius: 8,
+                          padding: "10px", color: "#888", cursor: "pointer", fontFamily: "monospace", fontSize: 12,
+                        }}>cancel</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button onClick={() => setShowTestConfirm(true)} style={{
+                      width: "100%", background: "#1e1e2e", border: "1px solid #3a3a4a", borderRadius: 8,
+                      padding: "10px", color: "#555", cursor: "pointer", fontFamily: "monospace", fontSize: 12,
+                    }}>load test data</button>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
