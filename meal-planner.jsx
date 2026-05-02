@@ -809,11 +809,11 @@ export default function MealPlanner() {
 
       {/* Meal selector modal */}
       {selectingFor && (
-        <div style={{
+        <div onClick={() => setSelectingFor(null)} style={{
           position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", display: "flex",
           alignItems: "flex-end", justifyContent: "center", zIndex: 200,
         }}>
-          <div style={{
+          <div onClick={e => e.stopPropagation()} style={{
             background: "#1a1a24", border: "1px solid #3a3a4a", borderRadius: "16px 16px 0 0",
             padding: 24, width: "100%", maxWidth: 720, maxHeight: "70vh", overflowY: "auto",
           }}>
