@@ -365,7 +365,7 @@ export default function MealPlanner() {
       <div style={{
         background: "linear-gradient(135deg, #1a1a24 0%, #12121a 100%)",
         borderBottom: "1px solid #2a2a3a",
-        padding: "20px 24px 0",
+        padding: "16px 16px 0",
       }}>
         <div style={{ maxWidth: 720, margin: "0 auto" }}>
           <h1 style={{
@@ -375,23 +375,28 @@ export default function MealPlanner() {
             color: "#c8b97a",
             margin: "0 0 4px",
           }}>🥘 Meal Planner</h1>
-          <p style={{ color: "#666", fontSize: 13, margin: "0 0 20px", fontFamily: "monospace" }}>
+          <p style={{ color: "#666", fontSize: 13, margin: "0 0 16px", fontFamily: "monospace" }}>
             Plan ahead · Eat well · Stay flexible
           </p>
           <div style={{ display: "flex", gap: 0, borderBottom: "none" }}>
             {["plan", "dishes", "fridge", "freezer", "settings"].map(tab => (
               <button key={tab} onClick={() => setActiveTab(tab)} style={{
+                flex: 1,
+                minWidth: 0,
                 background: activeTab === tab ? "#c8b97a" : "transparent",
                 color: activeTab === tab ? "#0f0f13" : "#888",
                 border: "none",
-                padding: "8px 20px",
+                padding: "8px 4px",
                 borderRadius: "6px 6px 0 0",
                 cursor: "pointer",
-                fontSize: 13,
+                fontSize: 12,
                 fontFamily: "monospace",
-                letterSpacing: "0.05em",
+                letterSpacing: "0.03em",
                 textTransform: "uppercase",
                 fontWeight: activeTab === tab ? "bold" : "normal",
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
               }}>
                 {tab === "plan" ? "📅 Week" : tab === "dishes" ? "🍽 Dishes" : tab === "fridge" ? "🧊 Fridge" : tab === "freezer" ? "❄️ Freezer" : "⚙ Settings"}
               </button>
@@ -400,7 +405,7 @@ export default function MealPlanner() {
         </div>
       </div>
 
-      <div style={{ maxWidth: 720, margin: "0 auto", padding: "24px 16px" }}>
+      <div style={{ maxWidth: 720, margin: "0 auto", padding: "20px 12px" }}>
 
         {/* PLAN TAB */}
         {activeTab === "plan" && (
@@ -815,7 +820,7 @@ export default function MealPlanner() {
           <div>
             <div style={{ marginBottom: 24 }}>
               <div style={{ fontFamily: "monospace", fontSize: 10, color: "#555", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 16 }}>Nutrition</div>
-              <div style={{ background: "#161620", border: "1px solid #2a2a3a", borderRadius: 10, padding: "20px 20px" }}>
+              <div style={{ background: "#161620", border: "1px solid #2a2a3a", borderRadius: 10, padding: 16 }}>
                 <label style={{ display: "block", fontSize: 11, fontFamily: "monospace", color: "#888", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.05em" }}>
                   Daily calorie goal
                 </label>
@@ -837,19 +842,19 @@ export default function MealPlanner() {
 
             <div>
               <div style={{ fontFamily: "monospace", fontSize: 10, color: "#555", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 16 }}>Data</div>
-              <div style={{ background: "#161620", border: "1px solid #2a2a3a", borderRadius: 10, padding: "20px" }}>
+              <div style={{ background: "#161620", border: "1px solid #2a2a3a", borderRadius: 10, padding: 16 }}>
                 <p style={{ margin: "0 0 16px", fontFamily: "monospace", fontSize: 12, color: "#666", lineHeight: 1.6 }}>
                   Download a backup of your dishes, fridge, freezer, week plan and settings. Upload a previously saved backup to restore.
                 </p>
-                <div style={{ display: "flex", gap: 10 }}>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
                   <button onClick={handleExport} style={{
-                    flex: 1, background: "#1e1e2e", border: "1px solid #3a3a4a", borderRadius: 8,
+                    flex: 1, minWidth: 120, background: "#1e1e2e", border: "1px solid #3a3a4a", borderRadius: 8,
                     padding: "10px", color: "#c8b97a", cursor: "pointer", fontFamily: "monospace", fontSize: 12,
                   }}>download backup</button>
                   <label style={{
-                    flex: 1, background: "#1e1e2e", border: "1px solid #3a3a4a", borderRadius: 8,
+                    flex: 1, minWidth: 120, background: "#1e1e2e", border: "1px solid #3a3a4a", borderRadius: 8,
                     padding: "10px", color: "#888", cursor: "pointer", fontFamily: "monospace", fontSize: 12,
-                    textAlign: "center",
+                    textAlign: "center", boxSizing: "border-box",
                   }}>
                     upload backup
                     <input type="file" accept=".json" onChange={handleImport} style={{ display: "none" }} />
