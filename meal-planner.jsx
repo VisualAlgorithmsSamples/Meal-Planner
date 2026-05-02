@@ -85,6 +85,9 @@ export default function MealPlanner() {
   const [editingDish, setEditingDish] = useState(null);
   const [dishSort, setDishSort] = useState("alpha");
   const [dishFilter, setDishFilter] = useState(null);
+  const [directKcalInputs, setDirectKcalInputs] = useState({});
+  const [hoveredBar, setHoveredBar] = useState(null);
+  const [selectedBar, setSelectedBar] = useState(null);
   const [showTestConfirm, setShowTestConfirm] = useState(false);
 
   const allOptions = [
@@ -173,6 +176,16 @@ export default function MealPlanner() {
       ...prev,
       [day]: { ...prev[day], [meal]: items.filter((_, i) => i !== index) }
     }));
+  };
+
+  const addDirectKcal = (day, meal) => {
+    const val = parseInt(directKcalInputs[meal]);
+    if (!val || val <= 0) return;
+    setPlan(prev => ({
+      ...prev,
+      [day]: { ...prev[day], [meal]: [...toArr(prev[day][meal]), { id: Date.now(), name: "direct kcal", calories: val, qty: 1, source: "direct" }] }
+    }));
+    setDirectKcalInputs(prev => ({ ...prev, [meal]: "" }));
   };
 
   const changeMealQty = (day, meal, index, delta) => {
@@ -299,6 +312,20 @@ export default function MealPlanner() {
     });
   };
 
+  const moveToFreezer = (item) => {
+    setFridge(prev => prev
+      .map(f => f.id === item.id ? { ...f, portions: f.portions - 1 } : f)
+      .filter(f => f.portions > 0)
+    );
+    setFreezer(prev => {
+      const match = prev.find(f => item.dishId ? f.dishId === item.dishId : f.name === item.name);
+      if (match) {
+        return prev.map(f => f.id === match.id ? { ...f, portions: f.portions + 1 } : f);
+      }
+      return [...prev, { id: Date.now(), dishId: item.dishId ?? null, name: item.name, calories: item.calories, portions: 1 }];
+    });
+  };
+
   const removeFridgeItem = (id) => setFridge(prev => prev.filter(f => f.id !== id));
   const changeFridgePortions = (id, delta) => {
     setFridge(prev => prev
@@ -379,7 +406,7 @@ export default function MealPlanner() {
             Plan ahead · Eat well · Stay flexible
           </p>
           <div style={{ display: "flex", gap: 0, borderBottom: "none" }}>
-            {["plan", "dishes", "fridge", "freezer", "settings"].map(tab => (
+            {["plan", "dishes", "fridge", "freezer", "history", "settings"].map(tab => (
               <button key={tab} onClick={() => setActiveTab(tab)} style={{
                 flex: 1,
                 minWidth: 0,
@@ -398,7 +425,7 @@ export default function MealPlanner() {
                 overflow: "hidden",
                 textOverflow: "ellipsis",
               }}>
-                {tab === "plan" ? "📅 Week" : tab === "dishes" ? "🍽 Dishes" : tab === "fridge" ? "🧊 Fridge" : tab === "freezer" ? "❄️ Freezer" : "⚙ Settings"}
+                {tab === "plan" ? "📅 Week" : tab === "dishes" ? "🍽 Dishes" : tab === "fridge" ? "🧊 Fridge" : tab === "freezer" ? "❄️ Freezer" : tab === "history" ? "📊 History" : "⚙ Settings"}
               </button>
             ))}
           </div>
@@ -455,6 +482,17 @@ export default function MealPlanner() {
                   </div>
 
                   {items.map((item, i) => {
+                    if (item.source === "direct") {
+                      return (
+                        <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "#1e1e2e", borderRadius: 8, padding: "10px 14px", marginBottom: 6 }}>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: 15, color: "#aaa" }}>{item.calories} kcal</div>
+                            <div style={{ fontSize: 11, color: "#555", fontFamily: "monospace", marginTop: 2 }}>direct</div>
+                          </div>
+                          <button onClick={() => clearMeal(activeDay, meal, i)} style={{ background: "none", border: "none", color: "#444", cursor: "pointer", fontSize: 18 }}>×</button>
+                        </div>
+                      );
+                    }
                     const qty = item.qty ?? 1;
                     const itemCal = item.calories * qty;
                     const canIncrease = item.source === "dish" || (fridge.find(f => f.id === item.id)?.portions ?? 0) > 0;
@@ -486,6 +524,24 @@ export default function MealPlanner() {
                     width: "100%", background: "#1a1a24", border: "1px dashed #3a3a4a", borderRadius: 8,
                     padding: "10px", color: "#666", cursor: "pointer", fontSize: 13, marginTop: items.length > 0 ? 4 : 0,
                   }}>+ Add {meal}</button>
+
+                  <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                    <input
+                      type="number" min={1} placeholder="kcal"
+                      value={directKcalInputs[meal] ?? ""}
+                      onChange={e => setDirectKcalInputs(prev => ({ ...prev, [meal]: e.target.value }))}
+                      onKeyDown={e => e.key === "Enter" && addDirectKcal(activeDay, meal)}
+                      style={{
+                        flex: 1, background: "#1a1a24", border: "1px dashed #3a3a4a", borderRadius: 8,
+                        padding: "8px 12px", color: "#aaa", fontSize: 13, fontFamily: "monospace",
+                        outline: "none", boxSizing: "border-box",
+                      }}
+                    />
+                    <button onClick={() => addDirectKcal(activeDay, meal)} style={{
+                      background: "#1a1a24", border: "1px dashed #3a3a4a", borderRadius: 8,
+                      padding: "8px 14px", color: "#666", cursor: "pointer", fontSize: 16, lineHeight: 1,
+                    }}>+</button>
+                  </div>
                 </div>
               );
             })}
@@ -760,6 +816,11 @@ export default function MealPlanner() {
                     }}>+</button>
                   </div>
                   <span style={{ fontFamily: "monospace", fontSize: 11, color: "#555" }}>portion{item.portions > 1 ? "s" : ""}</span>
+                  <button onClick={() => moveToFreezer(item)} style={{
+                    background: "#1a1a24", border: "1px solid #2a3a4a", borderRadius: 6,
+                    padding: "4px 10px", color: "#7ab8c8", cursor: "pointer", fontSize: 11,
+                    fontFamily: "monospace", whiteSpace: "nowrap",
+                  }}>→ freezer</button>
                   <button onClick={() => removeFridgeItem(item.id)} style={{ background: "none", border: "none", color: "#444", cursor: "pointer", fontSize: 18 }}>×</button>
                 </div>
               </div>
@@ -814,6 +875,156 @@ export default function MealPlanner() {
 
           </div>
         )}
+
+        {/* HISTORY TAB */}
+        {activeTab === "history" && (() => {
+          const todayStr = new Intl.DateTimeFormat("en-CA", {
+            timeZone: "Europe/Amsterdam", year: "numeric", month: "2-digit", day: "2-digit",
+          }).format(new Date());
+          const todayDate = new Date(todayStr + "T12:00:00Z");
+          const last30 = Array.from({ length: 30 }, (_, i) => {
+            const d = new Date(todayDate);
+            d.setUTCDate(d.getUTCDate() - (29 - i));
+            return d.toISOString().slice(0, 10);
+          });
+          const kcalByDate = history.reduce((acc, e) => {
+            acc[e.date] = (acc[e.date] ?? 0) + e.totalKcal;
+            return acc;
+          }, {});
+          const values = last30.map(d => kcalByDate[d] ?? 0);
+          const hasData = values.some(v => v > 0);
+          const maxVal = Math.max(settings.dailyCalories * 1.3, ...values);
+
+          const W = 600, H = 160;
+          const pad = { top: 8, right: 8, bottom: 28, left: 42 };
+          const cW = W - pad.left - pad.right;
+          const cH = H - pad.top - pad.bottom;
+          const spacing = cW / 30;
+          const barW = Math.max(2, spacing - 3);
+          const toY = v => pad.top + cH - (v / maxVal) * cH;
+          const toX = i => pad.left + i * spacing;
+          const goalY = toY(settings.dailyCalories);
+
+          const loggedDays = values.filter(v => v > 0);
+          const avg = loggedDays.length ? Math.round(loggedDays.reduce((a, b) => a + b, 0) / loggedDays.length) : 0;
+
+          return (
+            <div>
+              <div style={{ fontFamily: "monospace", fontSize: 10, color: "#555", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 16 }}>Last 30 days</div>
+              {!hasData ? (
+                <div style={{ textAlign: "center", padding: 40, color: "#444", fontFamily: "monospace" }}>No history yet — complete a day to see it here</div>
+              ) : (
+                <>
+                <div style={{ background: "#161620", border: "1px solid #2a2a3a", borderRadius: 10, padding: 16 }}>
+                  <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", display: "block" }} onMouseLeave={() => setHoveredBar(null)}>
+                    {/* Goal line */}
+                    <line x1={pad.left} y1={goalY} x2={W - pad.right} y2={goalY} stroke="#3a3a4a" strokeWidth={1} strokeDasharray="4 3" />
+                    <text x={W - pad.right - 2} y={goalY - 3} textAnchor="end" fill="#444" fontSize={9} fontFamily="monospace">{settings.dailyCalories} goal</text>
+
+                    {/* Bars */}
+                    {last30.map((date, i) => {
+                      const val = kcalByDate[date] ?? 0;
+                      if (val === 0) return null;
+                      const barH = (val / maxVal) * cH;
+                      const isActive = selectedBar !== null ? i === selectedBar : hoveredBar !== null ? i === hoveredBar : true;
+                      return (
+                        <rect key={date} x={toX(i)} y={toY(val)} width={barW} height={barH} rx={2}
+                          fill={calorieColor(val)} opacity={isActive ? 1 : 0.35}
+                          style={{ cursor: "pointer" }}
+                          onMouseEnter={() => setHoveredBar(i)}
+                          onClick={() => setSelectedBar(prev => prev === i ? null : i)}
+                        />
+                      );
+                    })}
+
+                    {/* X axis */}
+                    <line x1={pad.left} y1={pad.top + cH} x2={W - pad.right} y2={pad.top + cH} stroke="#2a2a3a" strokeWidth={1} />
+
+                    {/* X labels every 5 days */}
+                    {last30.map((date, i) => {
+                      if (i % 5 !== 0) return null;
+                      return (
+                        <text key={date} x={toX(i) + barW / 2} y={H - 4} textAnchor="middle" fill="#444" fontSize={9} fontFamily="monospace">
+                          {date.slice(5)}
+                        </text>
+                      );
+                    })}
+
+                    {/* Y label at 0 */}
+                    <text x={pad.left - 4} y={pad.top + cH} textAnchor="end" dominantBaseline="middle" fill="#333" fontSize={9} fontFamily="monospace">0</text>
+
+                    {/* Hover tooltip */}
+                    {hoveredBar !== null && (() => {
+                      const date = last30[hoveredBar];
+                      const val = kcalByDate[date] ?? 0;
+                      if (val === 0) return null;
+                      const bx = toX(hoveredBar) + barW / 2;
+                      const by = toY(val);
+                      const tw = 82, th = 30;
+                      const tx = Math.min(Math.max(bx - tw / 2, pad.left), W - pad.right - tw);
+                      const ty = Math.max(by - th - 6, pad.top);
+                      return (
+                        <g style={{ pointerEvents: "none" }}>
+                          <rect x={tx} y={ty} width={tw} height={th} rx={4} fill="#1e1e2e" stroke="#3a3a4a" strokeWidth={1} />
+                          <text x={tx + tw / 2} y={ty + 11} textAnchor="middle" fill="#888" fontSize={9} fontFamily="monospace">{date}</text>
+                          <text x={tx + tw / 2} y={ty + 23} textAnchor="middle" fill={calorieColor(val)} fontSize={10} fontFamily="monospace" fontWeight="bold">{val} kcal</text>
+                        </g>
+                      );
+                    })()}
+                  </svg>
+                  <div style={{ fontFamily: "monospace", fontSize: 11, color: "#555", marginTop: 8, display: "flex", gap: 16 }}>
+                    <span>{loggedDays.length} day{loggedDays.length !== 1 ? "s" : ""} logged</span>
+                    <span>avg {avg} kcal</span>
+                  </div>
+                </div>
+
+                {selectedBar !== null && (() => {
+                  const date = last30[selectedBar];
+                  const entries = history.filter(e => e.date === date);
+                  if (entries.length === 0) return null;
+                  const mergedMeals = {};
+                  for (const entry of entries) {
+                    for (const [meal, items] of Object.entries(entry.meals ?? {})) {
+                      mergedMeals[meal] = [...(mergedMeals[meal] ?? []), ...items];
+                    }
+                  }
+                  const dayTotal = entries.reduce((acc, e) => acc + e.totalKcal, 0);
+                  return (
+                    <div style={{ marginTop: 16 }}>
+                      <div style={{ fontFamily: "monospace", fontSize: 10, color: "#555", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 12 }}>
+                        {date} · <span style={{ color: calorieColor(dayTotal) }}>{dayTotal} kcal</span>
+                      </div>
+                      {MEAL_TYPES.filter(meal => mergedMeals[meal]?.length > 0).map(meal => {
+                        const items = mergedMeals[meal];
+                        const mealTotal = items.reduce((acc, item) => acc + item.totalKcal, 0);
+                        return (
+                          <div key={meal} style={{ background: "#161620", border: "1px solid #2a2a3a", borderRadius: 12, padding: 16, marginBottom: 10 }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                              <span style={{ fontSize: 11, fontFamily: "monospace", color: "#c8b97a", textTransform: "uppercase", letterSpacing: "0.1em" }}>
+                                {MEAL_ICONS[meal]} {meal}
+                              </span>
+                              <span style={{ fontSize: 12, color: calorieColor(mealTotal), fontFamily: "monospace" }}>{mealTotal} kcal</span>
+                            </div>
+                            {items.map((item, i) => (
+                              <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#1e1e2e", borderRadius: 8, padding: "8px 14px", marginBottom: i < items.length - 1 ? 6 : 0 }}>
+                                <div style={{ flex: 1 }}>
+                                  <div style={{ fontSize: 14 }}>{item.name}</div>
+                                  {item.qty > 1 && <div style={{ fontSize: 11, color: "#666", fontFamily: "monospace", marginTop: 2 }}>×{item.qty}</div>}
+                                </div>
+                                <span style={{ fontFamily: "monospace", fontSize: 12, color: "#888" }}>{item.totalKcal} kcal</span>
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+                </>
+              )}
+            </div>
+          );
+        })()}
 
         {/* SETTINGS TAB */}
         {activeTab === "settings" && (
