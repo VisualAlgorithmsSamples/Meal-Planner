@@ -1,4 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { BrowserMultiFormatReader } from "@zxing/browser";
+import { NotFoundException } from "@zxing/library";
 
 const SERVER = "";
 
@@ -66,6 +68,138 @@ function reconcilePlanWithFridge(plan, fridge) {
   return cleaned;
 }
 
+function ScannerModal({ onDetected, onClose }) {
+  const videoRef = useRef(null);
+  const controlsRef = useRef(null);
+  const detectedRef = useRef(false);
+  const [scanned, setScanned] = useState(null);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    const reader = new BrowserMultiFormatReader();
+    reader.decodeFromConstraints(
+      { video: { facingMode: { ideal: "environment" } } },
+      videoRef.current,
+      (res, err) => {
+        if (res && !detectedRef.current) {
+          detectedRef.current = true;
+          const text = res.getText();
+          controlsRef.current?.stop();
+          setScanned(text);
+          onDetected?.(text);
+        }
+        if (err && !(err instanceof NotFoundException)) setError(err.message);
+      }
+    ).then(controls => { controlsRef.current = controls; })
+     .catch(err => setError(err.message));
+
+    return () => { controlsRef.current?.stop(); };
+  }, []);
+
+  return (
+    <div style={{
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.92)",
+      zIndex: 1000, display: "flex", flexDirection: "column",
+      alignItems: "center", justifyContent: "center", gap: 16, padding: 24,
+    }}>
+      <video ref={videoRef} style={{ width: "100%", maxWidth: 420, borderRadius: 10, background: "#000" }} />
+      {error && (
+        <div style={{ fontFamily: "monospace", fontSize: 13, color: "#f87171", textAlign: "center" }}>
+          {error}
+        </div>
+      )}
+      {scanned ? (
+        <div style={{ fontFamily: "monospace", fontSize: 15, color: "#4ade80", textAlign: "center" }}>
+          <div style={{ fontSize: 11, color: "#888", marginBottom: 4 }}>detected</div>
+          {scanned}
+        </div>
+      ) : (
+        <div style={{ fontFamily: "monospace", fontSize: 12, color: "#555" }}>
+          point camera at barcode...
+        </div>
+      )}
+      <button onClick={onClose} style={{
+        background: "#1e1e2e", border: "1px solid #3a3a4a", borderRadius: 8,
+        padding: "8px 20px", color: "#c8b97a", cursor: "pointer",
+        fontFamily: "monospace", fontSize: 13,
+      }}>close</button>
+    </div>
+  );
+}
+
+const SCAN_OVERLAY = {
+  position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)",
+  zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24,
+};
+const SCAN_CARD = {
+  background: "#1a1a24", border: "1px solid #3a3a4a", borderRadius: 16,
+  padding: 24, width: "100%", maxWidth: 380,
+};
+
+function DishScanFlow({ dishes, onAddToFridge, onSaveBarcode, onClose }) {
+  const [step, setStep] = useState("scanning");
+  const [barcode, setBarcode] = useState(null);
+  const [matchedDish, setMatchedDish] = useState(null);
+
+  const handleDetected = (code) => {
+    const match = dishes.find(d => d.barcode === code);
+    setBarcode(code);
+    if (match) { setMatchedDish(match); setStep("matched"); }
+    else setStep("unmatched");
+  };
+
+  const handleConfirm = () => { onAddToFridge(matchedDish); onClose(); };
+
+  const handleAssign = (dish) => { onSaveBarcode(dish.id, barcode); onAddToFridge(dish); onClose(); };
+
+  const unassigned = dishes.filter(d => !d.barcode && !d.alwaysAvailable);
+
+  if (step === "scanning") return <ScannerModal onDetected={handleDetected} onClose={onClose} />;
+
+  if (step === "matched") return (
+    <div style={SCAN_OVERLAY}>
+      <div style={SCAN_CARD}>
+        <div style={{ fontFamily: "monospace", fontSize: 11, color: "#888", marginBottom: 16, textTransform: "uppercase" }}>barcode matched</div>
+        <div style={{ fontSize: 17, color: "#e8e4dc", marginBottom: 4 }}>{matchedDish.name}</div>
+        <div style={{ fontFamily: "monospace", fontSize: 12, color: "#666", marginBottom: 24 }}>
+          {matchedDish.servings} serving{matchedDish.servings !== 1 ? "s" : ""} → fridge
+        </div>
+        <div style={{ display: "flex", gap: 10 }}>
+          <button onClick={onClose} style={{ flex: 1, background: "none", border: "1px solid #3a3a4a", borderRadius: 8, padding: 10, color: "#888", cursor: "pointer", fontFamily: "monospace" }}>cancel</button>
+          <button onClick={handleConfirm} style={{ flex: 1, background: "#c8b97a", border: "none", borderRadius: 8, padding: 10, color: "#0f0f13", cursor: "pointer", fontWeight: "bold" }}>add to fridge</button>
+        </div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={SCAN_OVERLAY}>
+      <div style={{ ...SCAN_CARD, maxHeight: "80vh", display: "flex", flexDirection: "column" }}>
+        <div style={{ fontFamily: "monospace", fontSize: 11, color: "#888", textTransform: "uppercase", marginBottom: 4 }}>unknown barcode</div>
+        <div style={{ fontFamily: "monospace", fontSize: 12, color: "#7ab8c8", marginBottom: 16 }}>{barcode}</div>
+        <div style={{ fontFamily: "monospace", fontSize: 11, color: "#888", marginBottom: 10, textTransform: "uppercase" }}>assign to dish</div>
+        <div style={{ overflowY: "auto", flex: 1, marginBottom: 12 }}>
+          {unassigned.length === 0
+            ? <div style={{ fontFamily: "monospace", fontSize: 12, color: "#555" }}>all dishes already have a barcode</div>
+            : unassigned.map(dish => (
+              <button key={dish.id} onClick={() => handleAssign(dish)} style={{
+                display: "block", width: "100%", textAlign: "left",
+                background: "#0f0f13", border: "1px solid #2a2a3a", borderRadius: 8,
+                padding: "10px 14px", marginBottom: 8, cursor: "pointer",
+                fontFamily: "monospace", fontSize: 13,
+              }}>
+                <span style={{ color: "#e8e4dc" }}>{dish.name}</span>
+                <span style={{ color: "#555", fontSize: 11, marginLeft: 8 }}>{dish.servings} srv → fridge</span>
+              </button>
+            ))
+          }
+        </div>
+        <button onClick={onClose} style={{ background: "none", border: "1px solid #3a3a4a", borderRadius: 8, padding: 10, color: "#888", cursor: "pointer", fontFamily: "monospace" }}>cancel</button>
+      </div>
+    </div>
+  );
+}
+
 export default function MealPlanner() {
   // Dynamic: resets/changes week to week
   const [plan, setPlan] = useFileStorage("mp_plan", initialPlan);
@@ -78,8 +212,10 @@ export default function MealPlanner() {
   const [activeTab, setActiveTab] = useState("plan");
   const [activeDay, setActiveDay] = useState(TODAY);
   const [showAddDish, setShowAddDish] = useState(false);
+  const [showScanner, setShowScanner] = useState(false);
+  const [formScanOpen, setFormScanOpen] = useState(null); // "add" | "edit" | null
   const [selectingFor, setSelectingFor] = useState(null); // { day, meal, isBackup }
-  const [newDish, setNewDish] = useState({ name: "", calories: "", servings: 1, type: [], alwaysAvailable: false });
+  const [newDish, setNewDish] = useState({ name: "", calories: "", servings: 1, type: [], alwaysAvailable: false, barcode: "" });
   const [cookInputs, setCookInputs] = useState({});
   const [cookedFeedback, setCookedFeedback] = useState({});
   const [editingDish, setEditingDish] = useState(null);
@@ -269,8 +405,10 @@ export default function MealPlanner() {
 
   const addDish = () => {
     if (!newDish.name || !newDish.calories || !newDish.type.length) return;
-    setDishes(prev => [...prev, { ...newDish, id: Date.now(), calories: parseInt(newDish.calories), servings: parseInt(newDish.servings) }]);
-    setNewDish({ name: "", calories: "", servings: 1, type: [], alwaysAvailable: false });
+    const dish = { ...newDish, id: Date.now(), calories: parseInt(newDish.calories), servings: parseInt(newDish.servings) };
+    if (!dish.barcode) delete dish.barcode;
+    setDishes(prev => [...prev, dish]);
+    setNewDish({ name: "", calories: "", servings: 1, type: [], alwaysAvailable: false, barcode: "" });
     setShowAddDish(false);
   };
 
@@ -375,12 +513,17 @@ export default function MealPlanner() {
 
   const removeDish = (id) => setDishes(prev => prev.filter(d => d.id !== id));
 
+  const scanAddToFridge = (dish) => upsertStorage(setFridge, dish.id, dish.name, dish.calories, dish.servings);
+
+  const saveDishBarcode = (dishId, barcode) => setDishes(prev => prev.map(d => d.id === dishId ? { ...d, barcode } : d));
+
   const saveEditDish = (form) => {
     const calories = parseInt(form.calories);
     const servings = parseInt(form.servings);
-    const { type, alwaysAvailable } = form;
+    const { type, alwaysAvailable, barcode } = form;
     const id = editingDish.id;
-    setDishes(prev => prev.map(d => d.id === id ? { ...d, calories, servings, type, alwaysAvailable } : d));
+    const barcodeUpdate = barcode ? { barcode } : {};
+    setDishes(prev => prev.map(d => d.id === id ? { ...d, calories, servings, type, alwaysAvailable, ...barcodeUpdate } : d));
     const updateCalories = items => items.map(f => f.dishId === id ? { ...f, calories } : f);
     setFreezer(updateCalories);
     setFridge(updateCalories);
@@ -609,10 +752,16 @@ export default function MealPlanner() {
           <div>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
               <span style={{ fontFamily: "monospace", fontSize: 12, color: "#888" }}>{dishes.length} dishes saved</span>
-              <button onClick={() => setShowAddDish(true)} style={{
-                background: "#c8b97a", color: "#0f0f13", border: "none", borderRadius: 8,
-                padding: "8px 16px", cursor: "pointer", fontSize: 13, fontWeight: "bold",
-              }}>+ New Dish</button>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={() => setShowScanner(true)} style={{
+                  background: "#1e1e2e", color: "#7ab8c8", border: "1px solid #3a3a4a", borderRadius: 8,
+                  padding: "8px 14px", cursor: "pointer", fontSize: 13, fontFamily: "monospace",
+                }}>scan</button>
+                <button onClick={() => setShowAddDish(true)} style={{
+                  background: "#c8b97a", color: "#0f0f13", border: "none", borderRadius: 8,
+                  padding: "8px 16px", cursor: "pointer", fontSize: 13, fontWeight: "bold",
+                }}>+ New Dish</button>
+              </div>
             </div>
 
             <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
@@ -712,6 +861,15 @@ export default function MealPlanner() {
               </div>
             )}
 
+            {showScanner && (
+              <DishScanFlow
+                dishes={dishes}
+                onAddToFridge={scanAddToFridge}
+                onSaveBarcode={saveDishBarcode}
+                onClose={() => setShowScanner(false)}
+              />
+            )}
+
             {showAddDish && (
               <div style={{
                 position: "fixed", inset: 0, background: "rgba(0,0,0,0.8)", display: "flex",
@@ -734,6 +892,18 @@ export default function MealPlanner() {
                       </div>
                     );
                   })}
+                  <div style={{ marginBottom: 14 }}>
+                    <label style={{ display: "block", fontSize: 11, fontFamily: "monospace", color: "#888", marginBottom: 6, textTransform: "uppercase" }}>Barcode (optional)</label>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <input value={newDish.barcode} onChange={e => setNewDish(p => ({ ...p, barcode: e.target.value }))}
+                        placeholder="scan or enter manually"
+                        style={{ flex: 1, background: "#0f0f13", border: "1px solid #3a3a4a", borderRadius: 8, padding: "10px 12px", color: "#e8e4dc", fontSize: 13, fontFamily: "monospace" }} />
+                      <button onClick={() => setFormScanOpen("add")} style={{
+                        background: "#1e1e2e", border: "1px solid #3a3a4a", borderRadius: 8,
+                        padding: "0 14px", color: "#7ab8c8", cursor: "pointer", fontSize: 12, fontFamily: "monospace", whiteSpace: "nowrap",
+                      }}>scan</button>
+                    </div>
+                  </div>
                   <div style={{ marginBottom: 16 }}>
                     <label style={{ display: "block", fontSize: 11, fontFamily: "monospace", color: "#888", marginBottom: 8, textTransform: "uppercase" }}>Suitable for</label>
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -787,6 +957,18 @@ export default function MealPlanner() {
                       </div>
                     );
                   })}
+                  <div style={{ marginBottom: 14 }}>
+                    <label style={{ display: "block", fontSize: 11, fontFamily: "monospace", color: "#888", marginBottom: 6, textTransform: "uppercase" }}>Barcode</label>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <input value={editingDish.barcode ?? ""} onChange={e => setEditingDish(p => ({ ...p, barcode: e.target.value }))}
+                        placeholder="scan or enter manually"
+                        style={{ flex: 1, background: "#0f0f13", border: "1px solid #3a3a4a", borderRadius: 8, padding: "10px 12px", color: "#e8e4dc", fontSize: 13, fontFamily: "monospace" }} />
+                      <button onClick={() => setFormScanOpen("edit")} style={{
+                        background: "#1e1e2e", border: "1px solid #3a3a4a", borderRadius: 8,
+                        padding: "0 14px", color: "#7ab8c8", cursor: "pointer", fontSize: 12, fontFamily: "monospace", whiteSpace: "nowrap",
+                      }}>scan</button>
+                    </div>
+                  </div>
                   <div style={{ marginBottom: 16 }}>
                     <label style={{ display: "block", fontSize: 11, fontFamily: "monospace", color: "#888", marginBottom: 8, textTransform: "uppercase" }}>Suitable for</label>
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -816,6 +998,17 @@ export default function MealPlanner() {
                   </div>
                 </div>
               </div>
+            )}
+
+            {formScanOpen && (
+              <ScannerModal
+                onDetected={code => {
+                  if (formScanOpen === "add") setNewDish(p => ({ ...p, barcode: code }));
+                  if (formScanOpen === "edit") setEditingDish(p => ({ ...p, barcode: code }));
+                  setFormScanOpen(null);
+                }}
+                onClose={() => setFormScanOpen(null)}
+              />
             )}
           </div>
         )}

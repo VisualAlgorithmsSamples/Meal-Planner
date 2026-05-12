@@ -1,4 +1,5 @@
 const http = require("http");
+const https = require("https");
 const fs = require("fs");
 const path = require("path");
 
@@ -31,7 +32,7 @@ const serveStatic = (req, res) => {
   res.end(fs.readFileSync(target));
 };
 
-const server = http.createServer((req, res) => {
+const handler = (req, res) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, PATCH, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -70,6 +71,15 @@ const server = http.createServer((req, res) => {
   }
 
   serveStatic(req, res);
-});
+};
 
-server.listen(3001, () => console.log("Server → http://localhost:3001"));
+const CERT = path.join(__dirname, "certs", "cert.pem");
+const KEY  = path.join(__dirname, "certs", "key.pem");
+const certExists = fs.existsSync(CERT) && fs.existsSync(KEY);
+const server = certExists
+  ? https.createServer({ cert: fs.readFileSync(CERT), key: fs.readFileSync(KEY) }, handler)
+  : http.createServer(handler);
+
+server.listen(3001, () =>
+  console.log(`Server → ${certExists ? "https" : "http"}://localhost:3001`)
+);
