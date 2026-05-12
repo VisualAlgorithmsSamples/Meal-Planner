@@ -12,6 +12,10 @@ dist/
 # runtime data
 data.json
 
+# local TLS certificates (generated via mkcert, never commit)
+certs/
+*.pem
+
 # logs
 npm-debug.log*
 yarn-debug.log*
