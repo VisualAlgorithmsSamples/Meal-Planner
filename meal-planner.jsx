@@ -209,6 +209,7 @@ export default function MealPlanner() {
   const [dishes, setDishes] = useFileStorage("mp_dishes", []);
   const [settings, setSettings] = useFileStorage("mp_settings", { dailyCalories: 2200 });
   const [history, setHistory] = useFileStorage("mp_history", []);
+  const [weights, setWeights] = useFileStorage("mp_weight", []);
   const [activeTab, setActiveTab] = useState("plan");
   const [activeDay, setActiveDay] = useState(TODAY);
   const [showAddDish, setShowAddDish] = useState(false);
@@ -225,6 +226,10 @@ export default function MealPlanner() {
   const [invalidKcalInputs, setInvalidKcalInputs] = useState({});
   const [hoveredBar, setHoveredBar] = useState(null);
   const [selectedBar, setSelectedBar] = useState(null);
+  const [weightRange, setWeightRange] = useState("1M");
+  const [hoveredWeight, setHoveredWeight] = useState(null);
+  const [weightInput, setWeightInput] = useState("");
+  const [weightLogged, setWeightLogged] = useState(false);
   const [showTestConfirm, setShowTestConfirm] = useState(false);
 
   const allOptions = [
@@ -232,6 +237,21 @@ export default function MealPlanner() {
     ...dishes.map(d => ({ ...d, source: "dish" })),
     ...freezer.map(f => ({ ...f, source: "freezer", type: "both" })),
   ];
+
+  // Sync weight input when weights load or day changes to today
+  useEffect(() => {
+    if (activeDay !== TODAY) return;
+    const todayDate = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Europe/Amsterdam", year: "numeric", month: "2-digit", day: "2-digit",
+    }).format(new Date());
+    const todayEntry = weights.find(w => w.date === todayDate);
+    if (todayEntry) {
+      setWeightInput(String(todayEntry.weight));
+    } else {
+      const last = [...weights].sort((a, b) => a.date.localeCompare(b.date)).at(-1);
+      setWeightInput(last ? String(last.weight) : "");
+    }
+  }, [weights, activeDay]);
 
   const getLastOccurrenceDate = (dayName) => {
     const todayStr = new Intl.DateTimeFormat("en-CA", {
@@ -249,7 +269,7 @@ export default function MealPlanner() {
   };
 
   const handleExport = () => {
-    const data = { dishes, fridge, freezer, settings, plan, history };
+    const data = { dishes, fridge, freezer, settings, plan, history, weights };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -275,6 +295,7 @@ export default function MealPlanner() {
           setPlan(reconcilePlanWithFridge(data.plan, restoredFridge));
         }
         if (data.history) setHistory(data.history);
+        if (data.weights) setWeights(data.weights);
       } catch { /* invalid file, ignore */ }
     };
     reader.readAsText(file);
@@ -358,6 +379,23 @@ export default function MealPlanner() {
     return MEAL_TYPES.reduce((acc, meal) => acc + sumArr(d[meal]), 0);
   };
 
+  const adjustWeight = (delta) => {
+    const val = parseFloat(weightInput) || 0;
+    setWeightInput(String(Math.round((val + delta) * 10) / 10));
+  };
+
+  const logWeight = () => {
+    const val = parseFloat(weightInput);
+    if (isNaN(val) || val <= 0) return;
+    const rounded = Math.round(val * 10) / 10;
+    const todayDate = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Europe/Amsterdam", year: "numeric", month: "2-digit", day: "2-digit",
+    }).format(new Date());
+    setWeights(prev => [...prev.filter(w => w.date !== todayDate), { date: todayDate, weight: rounded }]);
+    setWeightLogged(true);
+    setTimeout(() => setWeightLogged(false), 1500);
+  };
+
   const completeDayMeals = (day) => {
     const date = getLastOccurrenceDate(day);
     const meals = {};
@@ -383,6 +421,7 @@ export default function MealPlanner() {
     setSettings(TEST_DATA.settings);
     setPlan(TEST_DATA.plan);
     setHistory(TEST_DATA.history);
+    setWeights(TEST_DATA.weights);
     setShowTestConfirm(false);
   };
 
@@ -742,6 +781,50 @@ export default function MealPlanner() {
                   padding: "10px 16px", color: "#4ade80", cursor: "pointer",
                   fontFamily: "monospace", fontSize: 12, letterSpacing: "0.05em", whiteSpace: "nowrap",
                 }}>day done</button>
+              </div>
+            )}
+
+            {/* Weight tracker — only shown on today */}
+            {activeDay === TODAY && (
+              <div style={{
+                marginTop: 24, padding: "16px 20px",
+                background: "#161620", border: "1px solid #2a2a3a", borderRadius: 12,
+              }}>
+                <div style={{ fontFamily: "monospace", fontSize: 11, color: "#888", textTransform: "uppercase", textAlign: "center", marginBottom: 12 }}>weight</div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <button onClick={() => adjustWeight(-0.1)} style={{
+                      background: "#1e1e2e", border: "1px solid #3a3a4a", borderRadius: 8,
+                      width: 36, height: 36, color: "#e8e4dc", cursor: "pointer", fontSize: 20, lineHeight: 1,
+                    }}>−</button>
+                    <input
+                      type="number" step="0.1" min="0" value={weightInput}
+                      onChange={e => setWeightInput(e.target.value)}
+                      onBlur={e => {
+                        const val = parseFloat(e.target.value);
+                        if (!isNaN(val)) setWeightInput(String(Math.round(val * 10) / 10));
+                      }}
+                      style={{
+                        width: 80, textAlign: "center", background: "#0f0f13",
+                        border: "1px solid #3a3a4a", borderRadius: 8, padding: "8px 0",
+                        color: "#e8e4dc", fontSize: 20, fontFamily: "monospace",
+                      }}
+                    />
+                    <span style={{ fontFamily: "monospace", fontSize: 13, color: "#555" }}>kg</span>
+                    <button onClick={() => adjustWeight(0.1)} style={{
+                      background: "#1e1e2e", border: "1px solid #3a3a4a", borderRadius: 8,
+                      width: 36, height: 36, color: "#e8e4dc", cursor: "pointer", fontSize: 20, lineHeight: 1,
+                    }}>+</button>
+                  </div>
+                  <button onClick={logWeight} style={{
+                    background: weightLogged ? "#4ade80" : "#1e1e2e",
+                    border: `1px solid ${weightLogged ? "#4ade80" : "#3a3a4a"}`,
+                    borderRadius: 8, padding: "8px 16px",
+                    color: weightLogged ? "#0f0f13" : "#c8b97a",
+                    cursor: "pointer", fontFamily: "monospace", fontSize: 12,
+                    transition: "background 0.2s, color 0.2s, border-color 0.2s",
+                  }}>{weightLogged ? "logged!" : "log"}</button>
+                </div>
               </div>
             )}
           </div>
@@ -1254,6 +1337,124 @@ export default function MealPlanner() {
                 })()}
                 </>
               )}
+
+              {/* Weight graph */}
+              {(() => {
+                const rangeDays = { "1M": 30, "2M": 60, "6M": 180, "1Y": 365 }[weightRange];
+                const rangeStart = new Date(todayDate);
+                rangeStart.setUTCDate(rangeStart.getUTCDate() - (rangeDays - 1));
+                const rangeStartStr = rangeStart.toISOString().slice(0, 10);
+
+                const filtered = weights
+                  .filter(w => w.date >= rangeStartStr && w.date <= todayStr)
+                  .sort((a, b) => a.date.localeCompare(b.date));
+
+                const WW = 600, WH = 350;
+                const wPad = { top: 8, right: 8, bottom: 28, left: 42 };
+                const wCW = WW - wPad.left - wPad.right;
+                const wCH = WH - wPad.top - wPad.bottom;
+                const rangeMs = rangeDays * 86400000;
+                const rangeStartMs = rangeStart.getTime();
+                const toWX = dateStr => wPad.left + ((new Date(dateStr + "T12:00:00Z").getTime() - rangeStartMs) / rangeMs) * wCW;
+
+                const wVals = filtered.map(w => w.weight);
+                const wMin = wVals.length ? Math.min(...wVals) : 0;
+                const wMax = wVals.length ? Math.max(...wVals) : 1;
+                const target = settings.weightTarget;
+                const scaleMin = target != null ? Math.min(wMin, target) : wMin;
+                const scaleMax = target != null ? Math.max(wMax, target) : wMax;
+                const wSpan = scaleMax - scaleMin || 2;
+                const yPadding = wSpan * 0.25;
+                const yLo = scaleMin - yPadding;
+                const yHi = scaleMax + yPadding;
+                const toWY = w => wPad.top + wCH - ((w - yLo) / (yHi - yLo)) * wCH;
+
+                const wPoints = filtered.map(w => ({ x: toWX(w.date), y: toWY(w.weight), date: w.date, weight: w.weight }));
+                const polyline = wPoints.map(p => `${p.x},${p.y}`).join(" ");
+
+                return (
+                  <div style={{ marginTop: 24 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                      <div style={{ fontFamily: "monospace", fontSize: 10, color: "#555", letterSpacing: "0.08em", textTransform: "uppercase" }}>Weight</div>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        {["1M", "2M", "6M", "1Y"].map(r => (
+                          <button key={r} onClick={() => setWeightRange(r)} style={{
+                            background: weightRange === r ? "#2a2a3a" : "none",
+                            border: `1px solid ${weightRange === r ? "#4a4a5a" : "#2a2a3a"}`,
+                            borderRadius: 6, padding: "3px 8px", cursor: "pointer",
+                            fontFamily: "monospace", fontSize: 11,
+                            color: weightRange === r ? "#c8b97a" : "#555",
+                          }}>{r}</button>
+                        ))}
+                      </div>
+                    </div>
+                    {filtered.length === 0 ? (
+                      <div style={{ textAlign: "center", padding: 40, color: "#444", fontFamily: "monospace" }}>No weight data for this period</div>
+                    ) : (
+                      <div style={{ background: "#161620", border: "1px solid #2a2a3a", borderRadius: 10, padding: 16 }}>
+                        <svg viewBox={`0 0 ${WW} ${WH}`} style={{ width: "100%", display: "block" }} onMouseLeave={() => setHoveredWeight(null)}>
+                          {/* Y axis ticks — whole kg only */}
+                          {(() => {
+                            const ticks = [];
+                            for (let t = Math.ceil(yLo); t <= yHi + 0.001; t++) ticks.push(t);
+                            // Always include target as a tick if set
+                            if (target != null && !ticks.includes(target)) ticks.push(target);
+                            const targetY = target != null ? toWY(target) : null;
+                            return ticks.map(t => {
+                              const ty = toWY(t);
+                              if (ty < wPad.top - 1 || ty > wPad.top + wCH + 1) return null;
+                              const isTarget = target != null && t === target;
+                              // Hide regular ticks that would overlap the target label
+                              if (!isTarget && targetY != null && Math.abs(ty - targetY) < 16) return null;
+                              return (
+                                <text key={t} x={wPad.left - 4} y={ty} textAnchor="end" dominantBaseline="middle"
+                                  fill={isTarget ? "#c8b97a" : "#e8e4dc"} fontSize={14} fontFamily="monospace"
+                                  fontWeight={isTarget ? "bold" : "normal"}>
+                                  {t % 1 === 0 ? String(Math.round(t)) : t.toFixed(1)}
+                                </text>
+                              );
+                            });
+                          })()}
+                          <line x1={wPad.left} y1={wPad.top + wCH} x2={WW - wPad.right} y2={wPad.top + wCH} stroke="#2a2a3a" strokeWidth={1} />
+                          {target != null && (
+                            <line x1={wPad.left} y1={toWY(target)} x2={WW - wPad.right} y2={toWY(target)} stroke="#c8b97a" strokeWidth={1} strokeDasharray="4 3" />
+                          )}
+                          {wPoints.length > 1 && <polyline points={polyline} fill="none" stroke="#7ab8c8" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />}
+                          {wPoints.map((p, i) => (
+                            <circle key={p.date} cx={p.x} cy={p.y} r={hoveredWeight === i ? 5 : 3}
+                              fill={hoveredWeight === i ? "#7ab8c8" : "#161620"} stroke="#7ab8c8" strokeWidth={2}
+                              style={{ cursor: "pointer" }}
+                              onMouseEnter={() => setHoveredWeight(i)}
+                              onClick={() => setHoveredWeight(prev => prev === i ? null : i)}
+                            />
+                          ))}
+                          {hoveredWeight !== null && (() => {
+                            const p = wPoints[hoveredWeight];
+                            const tw = 90, th = 30;
+                            const tx = Math.min(Math.max(p.x - tw / 2, wPad.left), WW - wPad.right - tw);
+                            const ty = Math.max(p.y - th - 8, wPad.top);
+                            return (
+                              <g style={{ pointerEvents: "none" }}>
+                                <rect x={tx} y={ty} width={tw} height={th} rx={4} fill="#1e1e2e" stroke="#3a3a4a" strokeWidth={1} />
+                                <text x={tx + tw / 2} y={ty + 11} textAnchor="middle" fill="#888" fontSize={9} fontFamily="monospace">{p.date}</text>
+                                <text x={tx + tw / 2} y={ty + 23} textAnchor="middle" fill="#7ab8c8" fontSize={10} fontFamily="monospace" fontWeight="bold">{p.weight.toFixed(1)} kg</text>
+                              </g>
+                            );
+                          })()}
+                        </svg>
+                        <div style={{ fontFamily: "monospace", fontSize: 11, color: "#555", marginTop: 8, display: "flex", gap: 16 }}>
+                          <span>{filtered.length} {filtered.length === 1 ? "entry" : "entries"}</span>
+                          {filtered.length > 1 && (
+                            <span style={{ color: filtered.at(-1).weight <= filtered[0].weight ? "#4ade80" : "#f87171" }}>
+                              {filtered.at(-1).weight > filtered[0].weight ? "+" : ""}{(filtered.at(-1).weight - filtered[0].weight).toFixed(1)} kg
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           );
         })()}
@@ -1283,11 +1484,41 @@ export default function MealPlanner() {
               </div>
             </div>
 
+            <div style={{ marginBottom: 24 }}>
+              <div style={{ fontFamily: "monospace", fontSize: 10, color: "#555", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 16 }}>Weight</div>
+              <div style={{ background: "#161620", border: "1px solid #2a2a3a", borderRadius: 10, padding: 16 }}>
+                <label style={{ display: "block", fontSize: 11, fontFamily: "monospace", color: "#888", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                  Target weight
+                </label>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <input
+                    type="number" min={1} step={0.1}
+                    value={settings.weightTarget ?? ""}
+                    placeholder="—"
+                    onChange={e => {
+                      const val = parseFloat(e.target.value);
+                      setSettings(p => ({ ...p, weightTarget: isNaN(val) ? null : val }));
+                    }}
+                    onBlur={e => {
+                      const val = parseFloat(e.target.value);
+                      if (!isNaN(val)) setSettings(p => ({ ...p, weightTarget: Math.round(val * 10) / 10 }));
+                    }}
+                    style={{
+                      width: 100, background: "#0f0f13", border: "1px solid #3a3a4a", borderRadius: 8,
+                      padding: "10px 12px", color: "#c8b97a", fontSize: 18, fontFamily: "monospace",
+                      fontWeight: "bold", textAlign: "center", outline: "none", boxSizing: "border-box",
+                    }}
+                  />
+                  <span style={{ fontFamily: "monospace", fontSize: 13, color: "#666" }}>kg</span>
+                </div>
+              </div>
+            </div>
+
             <div>
               <div style={{ fontFamily: "monospace", fontSize: 10, color: "#555", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 16 }}>Data</div>
               <div style={{ background: "#161620", border: "1px solid #2a2a3a", borderRadius: 10, padding: 16 }}>
                 <p style={{ margin: "0 0 16px", fontFamily: "monospace", fontSize: 12, color: "#666", lineHeight: 1.6 }}>
-                  Download a backup of your dishes, fridge, freezer, week plan and settings. Upload a previously saved backup to restore.
+                  Download a backup of your dishes, fridge, freezer, week plan, history, weight and settings. Upload a previously saved backup to restore.
                 </p>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
                   <button onClick={handleExport} style={{

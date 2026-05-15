@@ -53,4 +53,20 @@ export const TEST_DATA = {
   },
 
   history: [],
+
+  weights: (() => {
+    const today = new Date();
+    const entries = [];
+    // 30 days of weight data around 100 kg with slight downward trend and noise
+    for (let i = 29; i >= 0; i--) {
+      const d = new Date(today);
+      d.setDate(d.getDate() - i);
+      const date = d.toISOString().slice(0, 10);
+      const trend = (29 - i) * 0.05;               // ~1.5 kg loss over 30 days
+      const noise = (Math.sin(i * 2.3) * 0.3) + (Math.cos(i * 1.7) * 0.2);
+      const weight = Math.round((100.5 - trend + noise) * 10) / 10;
+      entries.push({ date, weight });
+    }
+    return entries;
+  })(),
 };
